@@ -63,7 +63,7 @@ async def test_heartbeat_session_dead_after_two_consecutive_misses():
     clob.get_server_time = AsyncMock(return_value=__import__("time").time())
     alerts = AsyncMock()
 
-    with patch("asyncio.sleep", new=AsyncMock()):
+    with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
         with pytest.raises(RuntimeError, match="session declared dead"):
             await order_safety_heartbeat_loop(clob, settings, alerts)
 
@@ -90,7 +90,7 @@ async def test_heartbeat_resets_miss_counter_on_success():
     clob.post_tick.side_effect = post_tick_side_effect
     clob.get_server_time = AsyncMock(return_value=__import__("time").time())
 
-    with patch("asyncio.sleep", new=AsyncMock()):
+    with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
         with pytest.raises(asyncio.CancelledError):
             await order_safety_heartbeat_loop(clob, settings, alerts)
 
@@ -140,7 +140,7 @@ async def test_heartbeat_format_loop2_sends_ping():
 
     market_ws.send.side_effect = fake_send
 
-    with patch("asyncio.sleep", new=AsyncMock(side_effect=fake_sleep)):
+    with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock(side_effect=fake_sleep)):
         with pytest.raises(asyncio.CancelledError):
             await market_user_ws_heartbeat_loop(market_ws, user_ws)
 
@@ -200,7 +200,7 @@ async def test_loops_are_independent():
         nonlocal loop2_ran
         loop2_ran = True
 
-    with patch("asyncio.sleep", new=AsyncMock()):
+    with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
         # Run Loop 1 until it dies; Loop 2 in parallel
         task1 = asyncio.create_task(order_safety_heartbeat_loop(clob, settings, alerts))
         task2 = asyncio.create_task(fake_loop2(market_ws, user_ws))
