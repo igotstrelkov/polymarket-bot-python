@@ -124,8 +124,8 @@ All markets with non-null `game_start_time` must go through the Sports Market Ad
 | Python | 3.11+ |
 | Concurrency | asyncio + uvloop (Linux/macOS only; default asyncio on Windows) |
 | py-clob-client | 0.20.0 (pinned — breaking changes without announcement) |
-| web3.py | 6.14.0 (pinned — later versions break Polygon CTF approval flow) |
-| eth-account | 0.11.2 |
+| web3.py | 7.15.0 (resolved — 6.14.0 was incompatible with py-clob-client 0.20.0 hexbytes constraint) |
+| eth-account | resolved by poetry (>=0.13.0 required by py-clob-client) |
 | websockets | 12.0 |
 | Redis | operational cache |
 | Postgres (asyncpg 0.29.0) | durable ledger |
