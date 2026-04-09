@@ -1,7 +1,10 @@
+import time
+
 import pytest
 from unittest.mock import AsyncMock
 
 from config.settings import Settings
+from core.execution.types import BookEvent, PriceLevel
 
 
 @pytest.fixture
@@ -27,15 +30,11 @@ def mock_ws_message(
     token_id: str,
     bids: list[tuple[float, float]],
     asks: list[tuple[float, float]],
-) -> dict:
-    """Factory returning a fake WS book dict.
-
-    NOTE: Updated in Step 3 once BookEvent / PriceLevel are defined in
-    core/execution/types.py — at that point this factory returns a proper
-    BookEvent instance instead of a raw dict.
-    """
-    return {
-        "token_id": token_id,
-        "bids": [{"price": p, "size": s} for p, s in bids],
-        "asks": [{"price": p, "size": s} for p, s in asks],
-    }
+) -> BookEvent:
+    """Factory returning a BookEvent for use in tests."""
+    return BookEvent(
+        token_id=token_id,
+        bids=[PriceLevel(price=p, size=s) for p, s in bids],
+        asks=[PriceLevel(price=p, size=s) for p, s in asks],
+        timestamp=time.time(),
+    )
