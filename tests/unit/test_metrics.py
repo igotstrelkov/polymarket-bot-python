@@ -155,3 +155,75 @@ def test_snapshot_values_match_setters():
     assert snap["maker_ratio"] == pytest.approx(0.98)
     assert snap["exposure_total"] == pytest.approx(800.0)
     assert snap["drawdown"] == pytest.approx(50.0)
+
+
+# ── Metric types and Histogram buckets (FR-605) ───────────────────────────────
+
+def test_six_metrics_exist():
+    """All 6 FR-605 metrics must be declared in the module."""
+    from metrics.prometheus import _LATENCY_BUCKETS, LatencyTracker, MetricsStore
+    store = MetricsStore()
+    # Verify all 6 attribute update methods exist and are callable
+    for method in (
+        "set_pnl_daily",      # bot_pnl_daily — Gauge
+        "inc_trades",          # bot_trades_total — Counter
+        "observe_latency",     # bot_latency_p95_ms — Histogram
+        "set_maker_ratio",     # bot_maker_ratio — Gauge
+        "set_exposure",        # bot_exposure_total — Gauge
+        "update_drawdown",     # bot_drawdown — Gauge
+    ):
+        assert callable(getattr(store, method)), f"Missing method: {method}"
+
+
+def test_histogram_has_exactly_7_buckets():
+    """bot_latency_p95_ms Histogram must have exactly 7 buckets per FR-605."""
+    from metrics.prometheus import _LATENCY_BUCKETS
+    assert len(_LATENCY_BUCKETS) == 7
+
+
+def test_histogram_bucket_values():
+    """Bucket boundaries must be 10, 25, 50, 75, 100, 150, 200 ms."""
+    from metrics.prometheus import _LATENCY_BUCKETS
+    assert tuple(_LATENCY_BUCKETS) == (10, 25, 50, 75, 100, 150, 200)
+
+
+def test_pnl_daily_is_gauge_semantics():
+    """bot_pnl_daily resets to zero; a Counter would not support reset."""
+    store = MetricsStore()
+    store.set_pnl_daily(100.0)
+    store.reset_pnl_daily()
+    assert store.pnl_daily() == pytest.approx(0.0)
+
+
+def test_trades_total_is_counter_semantics():
+    """bot_trades_total is cumulative — it never decreases."""
+    store = MetricsStore()
+    store.inc_trades(5)
+    store.inc_trades(3)
+    assert store.trades_total() == 8
+
+
+def test_maker_ratio_gauge_overwrites():
+    """bot_maker_ratio is a Gauge — a new set overwrites the previous value."""
+    store = MetricsStore()
+    store.set_maker_ratio(0.80)
+    store.set_maker_ratio(0.95)
+    assert store.maker_ratio() == pytest.approx(0.95)
+
+
+def test_exposure_gauge_overwrites():
+    """bot_exposure_total is a Gauge — overwrites on each set."""
+    store = MetricsStore()
+    store.set_exposure(500.0)
+    store.set_exposure(750.0)
+    assert store.exposure_total() == pytest.approx(750.0)
+
+
+def test_drawdown_gauge_reflects_latest():
+    """bot_drawdown is a Gauge derived from peak equity."""
+    store = MetricsStore()
+    store.update_drawdown(1000.0)
+    store.update_drawdown(800.0)
+    assert store.drawdown() == pytest.approx(200.0)
+    store.update_drawdown(1000.0)  # back to peak
+    assert store.drawdown() == pytest.approx(0.0)
