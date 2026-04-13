@@ -20,7 +20,7 @@ from auth.relayer import RelayClient
 from config.settings import Settings
 from core.control.universe_scanner import UniverseScanner
 from core.execution.book_state import BookStateStore
-from core.execution.execution_actor import ExecutionActor, CancelMutation
+from core.execution.execution_actor import ExecutionActor, diff as order_diff
 from core.execution.liveness import (
     order_safety_heartbeat_loop,
     market_user_ws_heartbeat_loop,
@@ -42,7 +42,7 @@ from core.ledger.order_ledger import OrderLedger
 from core.ledger.recovery_coordinator import RecoveryCoordinator
 from core.ledger.reward_rebate_ledger import RewardAndRebateLedger as RewardRebateLedger
 from fees.cache import FeeRateCache
-from inventory.manager import InventoryState
+from inventory.manager import InventoryState, apply_fill
 from metrics.prometheus import MetricsStore
 from storage.postgres_client import PostgresClient
 from storage.redis_client import RedisClient
@@ -72,7 +72,7 @@ class Orchestrator:
         self._recovery: RecoveryCoordinator | None = None
         self._fee_cache: FeeRateCache | None = None
         self._inventory: InventoryState | None = None
-        self._book_store: BookStateStore | None = None
+        self._book_stores: dict = {}  # token_id → BookStateStore
         self._quote_engine: QuoteEngine | None = None
         self._market_gateway: MarketStreamGateway | None = None
         self._user_gateway: UserStreamGateway | None = None
@@ -164,8 +164,8 @@ class Orchestrator:
         self._user_gateway = UserStreamGateway(
             creds=creds,
             fill_queue=fill_queue,
-            ack_queue=ack_queue,
             cancel_queue=cancel_queue,
+            ack_queue=ack_queue,
         )
 
         # ── Step 11: Start liveness loops ─────────────────────────────────────
@@ -184,7 +184,7 @@ class Orchestrator:
             ),
             asyncio.create_task(
                 market_user_ws_heartbeat_loop(
-                    self._market_gateway, self._user_gateway, s, self._alerter
+                    self._market_gateway, self._user_gateway
                 ),
                 name="market_user_ws_heartbeat",
             ),
@@ -192,11 +192,17 @@ class Orchestrator:
 
         # ── Step 12: Start Universe Scanner catalog loop ───────────────────────
         log.info("Step 12: starting Universe Scanner")
-        self._fee_cache = FeeRateCache(http_client=self._http, settings=s)
+        self._fee_cache = FeeRateCache(
+            ttl_s=s.FEE_CACHE_TTL_S,
+            consecutive_miss_threshold=s.FEE_CONSECUTIVE_MISS_THRESHOLD,
+            deviation_threshold_pct=s.FEE_DEVIATION_THRESHOLD_PCT,
+        )
         scanner = UniverseScanner(
             http_client=self._http,
             fee_cache=self._fee_cache,
-            settings=s,
+            scan_interval_ms=s.SCAN_INTERVAL_MS,
+            redemption_poll_interval_s=s.REDEMPTION_POLL_INTERVAL_S,
+            universe_tags=s.STRATEGY_A_UNIVERSE_TAGS,
         )
         self._background_tasks.append(
             asyncio.create_task(scanner.run_forever(), name="universe_scanner")
@@ -226,10 +232,10 @@ class Orchestrator:
         # ── Step 15: Start stale-quote safety net ─────────────────────────────
         log.info("Step 15: starting stale-quote loop")
         active_orders: list[str] = []
-        self._inventory = InventoryState(settings=s)
-        self._book_store = BookStateStore()
+        self._inventory = InventoryState()
+        self._book_stores = {}
         self._quote_engine = QuoteEngine()
-        self._execution_actor = ExecutionActor(clob_client=self._clob_client, settings=s)
+        self._execution_actor = ExecutionActor(settings=s)
         order_timestamps: dict[str, float] = {}
 
         self._background_tasks.append(
@@ -264,7 +270,10 @@ class Orchestrator:
         # 1. Activate kill switch (cancel all)
         if self._clob_client and not self._settings.DRY_RUN:
             try:
-                await asyncio.wait_for(self._clob_client.cancel_all(), timeout=5.0)
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, self._clob_client.cancel_all),
+                    timeout=5.0,
+                )
             except Exception:
                 log.exception("cancel_all() failed during shutdown")
 
@@ -329,11 +338,25 @@ class Orchestrator:
             return
 
         s = self._settings
-        self._book_store.update(event)
 
-        # Evaluate strategies via QuoteEngine
-        market = None  # capability model looked up by scanner in production
-        intents = self._quote_engine.evaluate(event.token_id, self._book_store, market)
+        # Get or create per-token book state
+        if event.token_id not in self._book_stores:
+            self._book_stores[event.token_id] = BookStateStore(token_id=event.token_id)
+        book = self._book_stores[event.token_id]
+        book.update(event)
+
+        # market capability model is provided by UniverseScanner in production;
+        # skip evaluation until scanner wires it in
+        market = None  # TODO: wire scanner → event_loop market lookup
+        if market is None:
+            return
+
+        intents = await self._quote_engine.compute(
+            market=market,
+            book=book,
+            inventory=self._inventory or InventoryState(),
+            fee_cache=self._fee_cache,
+        )
 
         # Diff desired vs confirmed
         confirmed = [
@@ -341,21 +364,21 @@ class Orchestrator:
             for oid in self._recovery.confirmed_order_ids()
             if self._order_ledger.get(oid) is not None
         ]
-        mutations = self._execution_actor.diff(intents, confirmed or [])
+        mutations = order_diff(intents, confirmed or [])
 
         # Risk gate
         risk_state = RiskState()
         safe_mutations = []
         for m in mutations:
             if hasattr(m, "intent"):
-                result = risk_check(m.intent, market or object(), risk_state, s)
+                result = risk_check(m.intent, market, risk_state, s)
                 if result.passed:
                     safe_mutations.append(m)
             else:
                 safe_mutations.append(m)
 
         if safe_mutations:
-            await self._execution_actor.apply(safe_mutations)
+            await self._execution_actor.apply(safe_mutations, self._clob_client)
             for m in safe_mutations:
                 if hasattr(m, "intent"):
                     order_timestamps[m.intent.token_id] = time.time()
@@ -372,9 +395,9 @@ class Orchestrator:
             strategy=getattr(event, "strategy", "A"),
             is_maker=getattr(event, "is_maker", True),
         )
-        self._inventory.apply_fill(event)
+        self._inventory = apply_fill(self._inventory, event.side, event.size)
         if self._fee_cache:
-            await self._fee_cache.on_fill(event.token_id)
+            self._fee_cache.on_fill(event.token_id)
         self._metrics.inc_trades()
 
     # ── Startup helpers ───────────────────────────────────────────────────────
