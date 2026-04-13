@@ -145,7 +145,7 @@ class Orchestrator:
             raise RuntimeError(
                 "Failed to rebuild confirmed state on startup — cannot begin quoting"
             )
-        log.info("Confirmed state rebuilt: %d orders", len(result.confirmed_order_ids))
+        log.info("Confirmed state rebuilt: %d orders", len(result.recovered_order_ids))
 
         # ── Step 9: Connect Market Stream Gateway ─────────────────────────────
         log.info("Step 9: connecting Market Stream Gateway")
