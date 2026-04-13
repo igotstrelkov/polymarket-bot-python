@@ -100,10 +100,8 @@ async def _check_wallet_balances(settings) -> list[tuple[str, str, str]]:
     results = []
     try:
         from web3 import Web3
-        from web3.middleware import geth_poa_middleware
 
         w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL, request_kwargs={"timeout": 8}))
-        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
         if not w3.is_connected():
             results.append(("Wallet USDC.e", _RED, "RPC unreachable"))

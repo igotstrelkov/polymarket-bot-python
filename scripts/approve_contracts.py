@@ -72,7 +72,6 @@ _SUFFICIENT_ALLOWANCE = 100_000 * 10 ** 6
 async def _run() -> None:
     from config.settings import Settings
     from web3 import Web3  # type: ignore[import]
-    from web3.middleware import geth_poa_middleware  # type: ignore[import]
 
     try:
         s = Settings()
@@ -81,7 +80,6 @@ async def _run() -> None:
         sys.exit(1)
 
     web3 = Web3(Web3.HTTPProvider(s.POLYGON_RPC_URL))
-    web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
     if not web3.is_connected():
         log.error("Cannot connect to Polygon RPC at %s", s.POLYGON_RPC_URL)
