@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 
 from alerts.alerter import Alerter
-from auth.credentials import CLOB_HOST, CHAIN_ID, derive_credentials
+from auth.credentials import CLOB_HOST, CHAIN_ID, build_clob_client, derive_credentials
 from auth.relayer import RelayClient
 from config.settings import Settings
 from core.control.universe_scanner import UniverseScanner
@@ -135,8 +135,9 @@ class Orchestrator:
         from py_clob_client.client import ClobClient  # type: ignore[import]
         self._clob_client = ClobClient(
             host=CLOB_HOST,
-            key=creds.api_key,
+            key=s.PRIVATE_KEY,
             chain_id=CHAIN_ID,
+            creds=build_clob_client(s, creds).creds,
         )
 
         result = await self._recovery.recover(self._clob_client)

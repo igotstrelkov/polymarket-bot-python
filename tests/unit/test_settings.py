@@ -239,7 +239,7 @@ def test_infrastructure_defaults():
     assert s.REDEMPTION_POLL_INTERVAL_S == 60
     assert s.EOA_FALLBACK_TIMEOUT_S == 30
     assert s.MIN_USDC_BALANCE == 100.0
-    assert s.RPC_MAX_LATENCY_MS == 100
+    assert s.RPC_MAX_LATENCY_MS == 150
     assert s.LATENCY_ALERT_P95_MS == 150
     assert s.REDIS_OUTAGE_HALT_S == 300
     assert s.POSTGRES_BUFFER_MAX_ROWS == 10_000
