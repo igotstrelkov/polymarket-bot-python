@@ -69,7 +69,8 @@ async def order_safety_heartbeat_loop(clob_client, settings, alerts) -> None:
 
     while True:
         try:
-            await clob_client.post_tick()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, clob_client.get_ok)
             consecutive_misses = 0
             log.debug("Order-safety heartbeat sent")
         except Exception as exc:
@@ -86,7 +87,8 @@ async def order_safety_heartbeat_loop(clob_client, settings, alerts) -> None:
 
         # Clock drift check
         try:
-            server_ts = await clob_client.get_server_time()
+            loop = asyncio.get_event_loop()
+            server_ts = await loop.run_in_executor(None, clob_client.get_server_time)
             drift = abs(time.time() - server_ts)
             if drift > _CLOCK_DRIFT_ALERT_S:
                 log.error("Clock drift %.1fs exceeds alert threshold — GTD expiry at risk", drift)

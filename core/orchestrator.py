@@ -204,8 +204,17 @@ class Orchestrator:
             redemption_poll_interval_s=s.REDEMPTION_POLL_INTERVAL_S,
             universe_tags=s.STRATEGY_A_UNIVERSE_TAGS,
         )
+        async def _scanner_loop() -> None:
+            interval_s = s.SCAN_INTERVAL_MS / 1000.0
+            while True:
+                try:
+                    await scanner.scan_once()
+                except Exception:
+                    log.exception("UniverseScanner.scan_once() failed")
+                await asyncio.sleep(interval_s)
+
         self._background_tasks.append(
-            asyncio.create_task(scanner.run_forever(), name="universe_scanner")
+            asyncio.create_task(_scanner_loop(), name="universe_scanner")
         )
 
         # ── Step 13: Start resolution polling loop ────────────────────────────
