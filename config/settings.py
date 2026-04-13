@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     REDEMPTION_POLL_INTERVAL_S: int = 60
     EOA_FALLBACK_TIMEOUT_S: int = 30
     MIN_USDC_BALANCE: float = 100.0
-    RPC_MAX_LATENCY_MS: int = 100
+    RPC_MAX_LATENCY_MS: int = 150
     LATENCY_ALERT_P95_MS: int = 150
     REDIS_OUTAGE_HALT_S: int = 300
     POSTGRES_BUFFER_MAX_ROWS: int = 10_000
