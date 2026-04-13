@@ -11,6 +11,7 @@ from core.execution.types import BookEvent, PriceLevel
 def settings() -> Settings:
     """Settings instance with DRY_RUN=True and test-safe defaults."""
     return Settings(
+        _env_file=None,
         DRY_RUN=True,
         PRIVATE_KEY="0x" + "a" * 64,
         POLYGON_RPC_URL="https://polygon-rpc.example.com",

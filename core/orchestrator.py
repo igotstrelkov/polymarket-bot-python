@@ -40,7 +40,7 @@ from core.ledger.auto_redemption import RedemptionRequest, auto_redeem
 from core.ledger.fill_position_ledger import FillAndPositionLedger
 from core.ledger.order_ledger import OrderLedger
 from core.ledger.recovery_coordinator import RecoveryCoordinator
-from core.ledger.reward_rebate_ledger import RewardRebateLedger
+from core.ledger.reward_rebate_ledger import RewardAndRebateLedger as RewardRebateLedger
 from fees.cache import FeeRateCache
 from inventory.manager import InventoryState
 from metrics.prometheus import MetricsStore

@@ -5,8 +5,13 @@ from config.settings import Settings
 
 
 def make_settings(**overrides) -> Settings:
-    """Build a valid Settings instance, merging in any overrides."""
+    """Build a valid Settings instance, merging in any overrides.
+
+    _env_file=None prevents pydantic-settings from reading a local .env
+    file so tests see only the values explicitly passed here.
+    """
     defaults = dict(
+        _env_file=None,
         PRIVATE_KEY="0x" + "a" * 64,
         POLYGON_RPC_URL="https://polygon-rpc.example.com",
         BUILDER_API_KEY="key",
@@ -22,6 +27,7 @@ def make_settings(**overrides) -> Settings:
 def test_private_key_required():
     with pytest.raises(ValidationError):
         Settings(
+            _env_file=None,
             POLYGON_RPC_URL="https://polygon-rpc.example.com",
             BUILDER_API_KEY="key",
             BUILDER_SECRET="secret",
@@ -32,6 +38,7 @@ def test_private_key_required():
 def test_polygon_rpc_url_required():
     with pytest.raises(ValidationError):
         Settings(
+            _env_file=None,
             PRIVATE_KEY="0x" + "a" * 64,
             BUILDER_API_KEY="key",
             BUILDER_SECRET="secret",
@@ -42,6 +49,7 @@ def test_polygon_rpc_url_required():
 def test_builder_api_key_required():
     with pytest.raises(ValidationError):
         Settings(
+            _env_file=None,
             PRIVATE_KEY="0x" + "a" * 64,
             POLYGON_RPC_URL="https://polygon-rpc.example.com",
             BUILDER_SECRET="secret",
@@ -52,6 +60,7 @@ def test_builder_api_key_required():
 def test_builder_secret_required():
     with pytest.raises(ValidationError):
         Settings(
+            _env_file=None,
             PRIVATE_KEY="0x" + "a" * 64,
             POLYGON_RPC_URL="https://polygon-rpc.example.com",
             BUILDER_API_KEY="key",
@@ -62,6 +71,7 @@ def test_builder_secret_required():
 def test_builder_passphrase_required():
     with pytest.raises(ValidationError):
         Settings(
+            _env_file=None,
             PRIVATE_KEY="0x" + "a" * 64,
             POLYGON_RPC_URL="https://polygon-rpc.example.com",
             BUILDER_API_KEY="key",
