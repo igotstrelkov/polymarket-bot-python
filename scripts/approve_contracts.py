@@ -115,7 +115,7 @@ async def _run() -> None:
             "gasPrice": web3.eth.gas_price,
         })
         signed = account.sign_transaction(tx)
-        tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+        tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
         receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
         if receipt["status"] == 1:
