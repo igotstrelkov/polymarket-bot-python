@@ -114,7 +114,7 @@ class Orchestrator:
         # ── Step 6: Connect Postgres + run migrations ─────────────────────────
         log.info("Step 6: Postgres connect + migrations")
         self._postgres = PostgresClient(
-            dsn=s.POSTGRES_DSN,
+            dsn=s.DATABASE_URL,
             buffer_max_rows=s.POSTGRES_BUFFER_MAX_ROWS,
         )
         await self._postgres.connect()

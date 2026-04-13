@@ -7,7 +7,7 @@ Usage:
 Applies any unapplied SQL migrations from storage/migrations/ in version order
 and exits. Idempotent — skips already-applied versions.
 
-Requires POSTGRES_DSN to be set in the environment (or .env file).
+Requires DATABASE_URL to be set in the environment (or .env file).
 """
 
 from __future__ import annotations
