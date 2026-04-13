@@ -41,7 +41,7 @@ def submit_order(ledger: OrderLedger, order_id: str, **kwargs) -> None:
 
 def make_clob_client(open_order_ids: list[str]) -> AsyncMock:
     clob = AsyncMock()
-    clob.get_open_orders = AsyncMock(return_value=[{"id": oid} for oid in open_order_ids])
+    clob.get_orders = AsyncMock(return_value=[{"id": oid} for oid in open_order_ids])
     return clob
 
 
@@ -117,7 +117,7 @@ async def test_recovery_multiple_orders_reconciled_correctly():
 async def test_recovery_failure_when_clob_raises():
     ledger, coordinator = make_coordinator()
     clob = AsyncMock()
-    clob.get_open_orders = AsyncMock(side_effect=Exception("connection refused"))
+    clob.get_orders = AsyncMock(side_effect=Exception("connection refused"))
 
     result = await coordinator.recover(clob)
 
@@ -131,7 +131,7 @@ async def test_resyncing_false_after_failure():
     """is_resyncing() must return False even after a failed recovery."""
     ledger, coordinator = make_coordinator()
     clob = AsyncMock()
-    clob.get_open_orders = AsyncMock(side_effect=Exception("timeout"))
+    clob.get_orders = AsyncMock(side_effect=Exception("timeout"))
 
     await coordinator.recover(clob)
 

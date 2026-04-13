@@ -182,12 +182,12 @@ async def test_rebuild_confirmed_state_called_on_reconnect():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[])
+    mock_clob.get_orders = AsyncMock(return_value=[])
 
     result = await coordinator.recover(mock_clob)
 
     assert result.success is True
-    mock_clob.get_open_orders.assert_awaited_once()
+    mock_clob.get_orders.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -197,7 +197,7 @@ async def test_rebuild_confirmed_state_merges_exchange_orders():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(
+    mock_clob.get_orders = AsyncMock(
         return_value=make_open_orders_response(["ord_orphan_1", "ord_orphan_2"])
     )
 
@@ -229,7 +229,7 @@ async def test_rebuild_confirmed_state_cancels_missing_ledger_orders():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[])  # exchange has nothing
+    mock_clob.get_orders = AsyncMock(return_value=[])  # exchange has nothing
 
     await coordinator.recover(mock_clob)
 
@@ -267,7 +267,7 @@ async def test_is_resyncing_false_after_successful_recovery():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[])
+    mock_clob.get_orders = AsyncMock(return_value=[])
 
     result = await coordinator.recover(mock_clob)
 
@@ -282,7 +282,7 @@ async def test_is_resyncing_false_after_failed_recovery():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(side_effect=Exception("CLOB unreachable"))
+    mock_clob.get_orders = AsyncMock(side_effect=Exception("CLOB unreachable"))
 
     result = await coordinator.recover(mock_clob)
 
@@ -304,7 +304,7 @@ async def test_last_recovery_timestamp_set_on_success():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[])
+    mock_clob.get_orders = AsyncMock(return_value=[])
 
     assert coordinator.last_recovery() is None
 
@@ -323,7 +323,7 @@ async def test_recovery_result_contains_order_ids():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(
+    mock_clob.get_orders = AsyncMock(
         return_value=make_open_orders_response(["ord_live_1"])
     )
 
@@ -338,7 +338,7 @@ async def test_recovery_result_has_timestamp():
     """RecoveryResult.recovered_at is populated."""
     coordinator = RecoveryCoordinator(OrderLedger())
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[])
+    mock_clob.get_orders = AsyncMock(return_value=[])
 
     result = await coordinator.recover(mock_clob)
 

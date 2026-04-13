@@ -387,7 +387,7 @@ async def test_recovery_coordinator_successful_path():
     coordinator = RecoveryCoordinator(order_ledger)
 
     mock_clob = AsyncMock()
-    mock_clob.get_open_orders = AsyncMock(return_value=[
+    mock_clob.get_orders = AsyncMock(return_value=[
         {
             "id": "ord_exchange_1",
             "asset_id": "tok_1",
