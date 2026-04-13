@@ -38,7 +38,7 @@ async def _run() -> None:
         log.error("Failed to load Settings: %s", exc)
         sys.exit(1)
 
-    client = PostgresClient(dsn=s.POSTGRES_DSN)
+    client = PostgresClient(dsn=s.DATABASE_URL)
     try:
         await client.connect()
         log.info("Connected to Postgres")
