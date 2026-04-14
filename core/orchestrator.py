@@ -352,16 +352,33 @@ class Orchestrator:
 
     async def _on_scanner_update(self, markets: list[MarketCapabilityModel]) -> None:
         """Called after each scanner cycle to update the market registry and
-        subscribe the market WS gateway to any newly discovered token IDs."""
+        subscribe the market WS gateway to any newly discovered token IDs.
+
+        Selection: accepting_orders only, sorted by rewards_daily_rate descending
+        (reward-eligible markets have the best maker EV), capped at MM_MAX_MARKETS.
+        Full EV ranking via MarketRanker requires live book data and runs per
+        BookEvent once markets are subscribed.
+        """
+        s = self._settings
+
+        # Filter and rank by reward rate; fall back to fee_rate_bps as tiebreaker
+        candidates = [m for m in markets if m.accepting_orders and m.seconds_delay == 0]
+        candidates.sort(
+            key=lambda m: (m.rewards_daily_rate or 0.0, -m.fee_rate_bps),
+            reverse=True,
+        )
+        selected = candidates[: s.MM_MAX_MARKETS]
+        selected_ids = {m.token_id for m in selected}
+
+        # Build updated registry from selected set only
         new_token_ids: list[str] = []
-        for market in markets:
+        for market in selected:
             if market.token_id not in self._markets:
                 new_token_ids.append(market.token_id)
             self._markets[market.token_id] = market
 
-        # Remove markets no longer in the universe
-        live_ids = {m.token_id for m in markets}
-        removed = [tid for tid in list(self._markets) if tid not in live_ids]
+        # Remove markets that fell out of the selected set
+        removed = [tid for tid in list(self._markets) if tid not in selected_ids]
         for tid in removed:
             del self._markets[tid]
             self._book_stores.pop(tid, None)
@@ -371,12 +388,12 @@ class Orchestrator:
         if new_token_ids and self._market_gateway:
             await self._market_gateway.subscribe(new_token_ids)
             log.info(
-                "UniverseScanner: subscribed to %d new token(s); %d total active",
-                len(new_token_ids), len(self._markets),
+                "UniverseScanner: subscribed to %d new token(s); %d total active (cap=%d)",
+                len(new_token_ids), len(self._markets), s.MM_MAX_MARKETS,
             )
 
         if removed:
-            log.info("UniverseScanner: removed %d token(s) from universe", len(removed))
+            log.info("UniverseScanner: rotated out %d token(s) from universe", len(removed))
 
     # ── Main event loop ───────────────────────────────────────────────────────
 
