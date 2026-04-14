@@ -18,6 +18,7 @@ from alerts.alerter import Alerter
 from auth.credentials import CLOB_HOST, CHAIN_ID, build_clob_client, derive_credentials
 from auth.relayer import RelayClient
 from config.settings import Settings
+from core.control.capability_enricher import MarketCapabilityModel
 from core.control.universe_scanner import UniverseScanner
 from core.execution.book_state import BookStateStore
 from core.execution.execution_actor import ExecutionActor, diff as order_diff
@@ -46,6 +47,9 @@ from inventory.manager import InventoryState, apply_fill
 from metrics.prometheus import MetricsStore
 from storage.postgres_client import PostgresClient
 from storage.redis_client import RedisClient
+from strategies.strategy_a import StrategyA
+from strategies.strategy_b import StrategyB
+from strategies.strategy_c import StrategyC
 
 log = logging.getLogger(__name__)
 
@@ -71,8 +75,9 @@ class Orchestrator:
         self._reward_ledger: RewardRebateLedger | None = None
         self._recovery: RecoveryCoordinator | None = None
         self._fee_cache: FeeRateCache | None = None
-        self._inventory: InventoryState | None = None
-        self._book_stores: dict = {}  # token_id → BookStateStore
+        self._inventories: dict[str, InventoryState] = {}   # token_id → InventoryState
+        self._book_stores: dict[str, BookStateStore] = {}   # token_id → BookStateStore
+        self._markets: dict[str, MarketCapabilityModel] = {}  # token_id → market model
         self._quote_engine: QuoteEngine | None = None
         self._market_gateway: MarketStreamGateway | None = None
         self._user_gateway: UserStreamGateway | None = None
@@ -204,11 +209,13 @@ class Orchestrator:
             redemption_poll_interval_s=s.REDEMPTION_POLL_INTERVAL_S,
             universe_tags=s.STRATEGY_A_UNIVERSE_TAGS,
         )
+
         async def _scanner_loop() -> None:
             interval_s = s.SCAN_INTERVAL_MS / 1000.0
             while True:
                 try:
-                    await scanner.scan_once()
+                    markets = await scanner.scan_once()
+                    await self._on_scanner_update(markets)
                 except Exception:
                     log.exception("UniverseScanner.scan_once() failed")
                 await asyncio.sleep(interval_s)
@@ -241,9 +248,41 @@ class Orchestrator:
         # ── Step 15: Start stale-quote safety net ─────────────────────────────
         log.info("Step 15: starting stale-quote loop")
         active_orders: list[str] = []
-        self._inventory = InventoryState()
         self._book_stores = {}
-        self._quote_engine = QuoteEngine()
+        self._inventories = {}
+        self._markets = {}
+
+        # Instantiate strategies from settings
+        strategies = []
+        if s.STRATEGY_A_ENABLED:
+            strategies.append(StrategyA(
+                base_spread=s.MM_BASE_SPREAD,
+                cost_floor=s.MM_COST_FLOOR,
+                order_size=s.MM_ORDER_SIZE,
+                max_exposure=s.MAX_PER_MARKET,
+                resolution_warn_ms=s.RESOLUTION_WARN_MS,
+                gtd_resolution_buffer_ms=s.GTD_RESOLUTION_BUFFER_MS,
+                inventory_skew_threshold=s.INVENTORY_SKEW_THRESHOLD,
+                inventory_halt_threshold=s.INVENTORY_HALT_THRESHOLD,
+                inventory_skew_multiplier=s.INVENTORY_SKEW_MULTIPLIER,
+            ))
+        if s.STRATEGY_B_ENABLED:
+            strategies.append(StrategyB(
+                penny_min_price=s.PENNY_MIN_PRICE,
+                penny_max_price=s.PENNY_MAX_PRICE,
+                penny_budget=s.PENNY_BUDGET,
+                max_exposure=s.PENNY_MAX_TOTAL,
+            ))
+        if s.STRATEGY_C_ENABLED:
+            strategies.append(StrategyC(
+                prob_threshold=s.SNIPE_PROB_THRESHOLD,
+                max_fee_bps=s.SNIPE_MAX_FEE_BPS,
+                snipe_min_size=s.SNIPE_MIN_SIZE,
+                snipe_max_size=s.SNIPE_MAX_SIZE,
+                max_exposure=s.SNIPE_MAX_POSITION,
+            ))
+
+        self._quote_engine = QuoteEngine(strategies=strategies)
         self._execution_actor = ExecutionActor(settings=s)
         order_timestamps: dict[str, float] = {}
 
@@ -309,6 +348,36 @@ class Orchestrator:
 
         log.info("Orchestrator stopped cleanly")
 
+    # ── Scanner callback ──────────────────────────────────────────────────────
+
+    async def _on_scanner_update(self, markets: list[MarketCapabilityModel]) -> None:
+        """Called after each scanner cycle to update the market registry and
+        subscribe the market WS gateway to any newly discovered token IDs."""
+        new_token_ids: list[str] = []
+        for market in markets:
+            if market.token_id not in self._markets:
+                new_token_ids.append(market.token_id)
+            self._markets[market.token_id] = market
+
+        # Remove markets no longer in the universe
+        live_ids = {m.token_id for m in markets}
+        removed = [tid for tid in list(self._markets) if tid not in live_ids]
+        for tid in removed:
+            del self._markets[tid]
+            self._book_stores.pop(tid, None)
+            self._inventories.pop(tid, None)
+
+        # Subscribe WS gateway to newly discovered tokens
+        if new_token_ids and self._market_gateway:
+            await self._market_gateway.subscribe(new_token_ids)
+            log.info(
+                "UniverseScanner: subscribed to %d new token(s); %d total active",
+                len(new_token_ids), len(self._markets),
+            )
+
+        if removed:
+            log.info("UniverseScanner: removed %d token(s) from universe", len(removed))
+
     # ── Main event loop ───────────────────────────────────────────────────────
 
     async def _run_event_loop(
@@ -319,22 +388,26 @@ class Orchestrator:
         active_orders: list,
         order_timestamps: dict,
     ) -> None:
-        """Consume events from all queues until _running is False."""
-        while self._running:
-            done, _ = await asyncio.wait(
-                [
-                    asyncio.ensure_future(book_queue.get()),
-                    asyncio.ensure_future(fill_queue.get()),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
-                timeout=1.0,
-            )
-            for fut in done:
-                event = fut.result()
-                if isinstance(event, BookEvent):
-                    await self._handle_book_event(event, active_orders, order_timestamps)
-                elif isinstance(event, FillEvent):
-                    await self._handle_fill_event(event)
+        """Consume events from all queues until _running is False.
+
+        Each queue gets its own long-lived consumer task — avoids the
+        ensure_future-per-iteration task leak that causes CPU runaway.
+        """
+        async def _consume_book() -> None:
+            while self._running:
+                event: BookEvent = await book_queue.get()
+                await self._handle_book_event(event, active_orders, order_timestamps)
+
+        async def _consume_fills() -> None:
+            while self._running:
+                event: FillEvent = await fill_queue.get()
+                await self._handle_fill_event(event)
+
+        await asyncio.gather(
+            _consume_book(),
+            _consume_fills(),
+            return_exceptions=True,
+        )
 
     async def _handle_book_event(
         self,
@@ -354,16 +427,20 @@ class Orchestrator:
         book = self._book_stores[event.token_id]
         book.update(event)
 
-        # market capability model is provided by UniverseScanner in production;
-        # skip evaluation until scanner wires it in
-        market = None  # TODO: wire scanner → event_loop market lookup
+        # Skip if scanner hasn't discovered this token yet
+        market = self._markets.get(event.token_id)
         if market is None:
             return
+
+        # Per-token inventory state
+        if event.token_id not in self._inventories:
+            self._inventories[event.token_id] = InventoryState()
+        inventory = self._inventories[event.token_id]
 
         intents = await self._quote_engine.compute(
             market=market,
             book=book,
-            inventory=self._inventory or InventoryState(),
+            inventory=inventory,
             fee_cache=self._fee_cache,
         )
 
@@ -404,7 +481,10 @@ class Orchestrator:
             strategy=getattr(event, "strategy", "A"),
             is_maker=getattr(event, "is_maker", True),
         )
-        self._inventory = apply_fill(self._inventory, event.side, event.size)
+        if event.token_id in self._inventories:
+            self._inventories[event.token_id] = apply_fill(
+                self._inventories[event.token_id], event.side, event.size
+            )
         if self._fee_cache:
             self._fee_cache.on_fill(event.token_id)
         self._metrics.inc_trades()
