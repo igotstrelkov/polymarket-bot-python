@@ -76,8 +76,8 @@ class UserStreamGateway:
 
                     async for raw in ws:
                         await self._handle_message(raw)
-            except (websockets.ConnectionClosed, OSError) as exc:
-                log.warning("User WS disconnected: %s — reconnecting in %.1fs", exc, backoff)
+            except Exception as exc:
+                log.warning("User WS error: %s — reconnecting in %.1fs", exc, backoff)
             finally:
                 self._ws = None
 

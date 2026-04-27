@@ -57,8 +57,8 @@ class MarketStreamGateway:
                         await self._send_subscribe(ws, list(self._subscribed))
                     async for raw in ws:
                         await self._handle_message(raw)
-            except (websockets.ConnectionClosed, OSError) as exc:
-                log.warning("Market WS disconnected: %s — reconnecting in %.1fs", exc, backoff)
+            except Exception as exc:
+                log.warning("Market WS error: %s — reconnecting in %.1fs", exc, backoff)
             finally:
                 self._ws = None
 
