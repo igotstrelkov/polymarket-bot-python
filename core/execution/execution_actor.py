@@ -243,9 +243,32 @@ class ExecutionActor:
         tracker = self._tracker(intent.token_id)
         tracker.record_placement()
 
+        from py_clob_client.clob_types import OrderArgs, OrderType, PartialCreateOrderOptions
+
+        order_args = OrderArgs(
+            token_id=intent.token_id,
+            price=intent.price,
+            size=float(intent.size),
+            side=intent.side,
+            fee_rate_bps=intent.fee_rate_bps,
+            expiration=intent.expiration or 0,
+        )
+        options = PartialCreateOrderOptions(
+            tick_size=str(intent.tick_size),
+            neg_risk=intent.neg_risk,
+        )
+        order_type = OrderType.GTD if intent.time_in_force == "GTD" else OrderType.GTC
+        loop = asyncio.get_running_loop()
+
         for attempt, delay_s in enumerate(_RETRY_DELAYS_S, start=1):
             try:
-                order_id = await clob_client.place_order(intent)
+                signed = await loop.run_in_executor(
+                    None, lambda: clob_client.create_order(order_args, options)
+                )
+                resp = await loop.run_in_executor(
+                    None, lambda: clob_client.post_order(signed, order_type)
+                )
+                order_id = (resp or {}).get("orderID") or (resp or {}).get("id")
                 self._update_confirm_cancel_mode(intent.token_id)
                 return order_id
             except Exception as exc:

@@ -7,7 +7,7 @@ force reconciliation), and adaptive confirm-cancel mode activation/deactivation.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -52,23 +52,33 @@ def make_intent(*, token_id: str = "tok1", side: str = "BUY") -> OrderIntent:
     )
 
 
+def make_clob(*, order_id: str = "order_xyz") -> MagicMock:
+    """Build a clob mock with sync create_order/post_order and async cancel_orders."""
+    clob = MagicMock()
+    clob.create_order = MagicMock(return_value=MagicMock())  # returns signed order
+    clob.post_order = MagicMock(return_value={"orderID": order_id})
+    clob.cancel_orders = AsyncMock()
+    return clob
+
+
 # ── DRY_RUN mode ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_dry_run_place_does_not_call_api():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=True))
-    clob  = AsyncMock()
+    clob  = make_clob()
 
     result = await actor.apply([PlaceMutation(intent=make_intent())], clob)
 
-    clob.place_order.assert_not_awaited()
+    assert clob.create_order.call_count == 0
+    assert clob.post_order.call_count == 0
     assert len(result["placed"]) == 1
 
 
 @pytest.mark.asyncio
 async def test_dry_run_cancel_does_not_call_api():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=True))
-    clob  = AsyncMock()
+    clob  = make_clob()
 
     result = await actor.apply([CancelMutation(order_id="oid1", token_id="tok1")], clob)
 
@@ -79,7 +89,7 @@ async def test_dry_run_cancel_does_not_call_api():
 @pytest.mark.asyncio
 async def test_dry_run_empty_mutations_returns_empty_result():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=True))
-    result = await actor.apply([], AsyncMock())
+    result = await actor.apply([], make_clob())
     assert result == {"cancelled": [], "placed": []}
 
 
@@ -88,12 +98,11 @@ async def test_dry_run_empty_mutations_returns_empty_result():
 @pytest.mark.asyncio
 async def test_live_place_calls_clob_and_returns_order_id():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.place_order = AsyncMock(return_value="order_xyz")
+    clob  = make_clob(order_id="order_xyz")
 
     result = await actor.apply([PlaceMutation(intent=make_intent())], clob)
 
-    clob.place_order.assert_awaited_once()
+    assert clob.post_order.call_count == 1
     assert "order_xyz" in result["placed"]
 
 
@@ -101,9 +110,7 @@ async def test_live_place_calls_clob_and_returns_order_id():
 async def test_live_fire_and_forget_cancel_proceeds_to_place():
     """Cancel dispatched without awaiting; place proceeds immediately."""
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.cancel_orders = AsyncMock()
-    clob.place_order   = AsyncMock(return_value="placed_id")
+    clob  = make_clob(order_id="placed_id")
 
     mutations = [
         CancelMutation(order_id="c1", token_id="tok1"),
@@ -118,8 +125,10 @@ async def test_live_fire_and_forget_cancel_proceeds_to_place():
 @pytest.mark.asyncio
 async def test_live_multiple_places_all_returned():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.place_order = AsyncMock(side_effect=["id1", "id2"])
+    clob  = MagicMock()
+    clob.create_order = MagicMock(return_value=MagicMock())
+    clob.post_order   = MagicMock(side_effect=[{"orderID": "id1"}, {"orderID": "id2"}])
+    clob.cancel_orders = AsyncMock()
 
     mutations = [
         PlaceMutation(intent=make_intent(side="BUY")),
@@ -135,17 +144,19 @@ async def test_live_multiple_places_all_returned():
 @pytest.mark.asyncio
 async def test_retry_succeeds_on_second_attempt():
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    call_count = 0
+    clob  = MagicMock()
+    clob.create_order  = MagicMock(return_value=MagicMock())
+    clob.cancel_orders = AsyncMock()
 
-    async def side_effect(_intent):
+    call_count = 0
+    def post_side_effect(*_args, **_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise Exception("duplicate order ID")
-        return "retry_ok"
+        return {"orderID": "retry_ok"}
 
-    clob.place_order = AsyncMock(side_effect=side_effect)
+    clob.post_order = MagicMock(side_effect=post_side_effect)
 
     with patch("core.execution.execution_actor.asyncio.sleep", new=AsyncMock()):
         result = await actor.apply([PlaceMutation(intent=make_intent())], clob)
@@ -158,22 +169,26 @@ async def test_retry_succeeds_on_second_attempt():
 async def test_three_retries_exhausted_order_not_placed():
     """10ms → 25ms → 50ms all fail → order skipped, force reconciliation signalled."""
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.place_order = AsyncMock(side_effect=Exception("duplicate order ID"))
+    clob  = MagicMock()
+    clob.create_order  = MagicMock(return_value=MagicMock())
+    clob.post_order    = MagicMock(side_effect=Exception("duplicate order ID"))
+    clob.cancel_orders = AsyncMock()
 
     with patch("core.execution.execution_actor.asyncio.sleep", new=AsyncMock()):
         result = await actor.apply([PlaceMutation(intent=make_intent())], clob)
 
     assert result["placed"] == []
-    assert clob.place_order.await_count == 3
+    assert clob.post_order.call_count == 3
 
 
 @pytest.mark.asyncio
 async def test_retry_delays_are_10ms_25ms_50ms():
     """Verify the sleep calls use the correct backoff sequence."""
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.place_order = AsyncMock(side_effect=Exception("duplicate order ID"))
+    clob  = MagicMock()
+    clob.create_order  = MagicMock(return_value=MagicMock())
+    clob.post_order    = MagicMock(side_effect=Exception("duplicate order ID"))
+    clob.cancel_orders = AsyncMock()
 
     sleep_calls: list[float] = []
 
@@ -190,12 +205,14 @@ async def test_retry_delays_are_10ms_25ms_50ms():
 async def test_non_duplicate_error_no_retry():
     """Errors other than duplicate-ID are not retried."""
     actor = ExecutionActor(settings=make_settings(DRY_RUN=False))
-    clob  = AsyncMock()
-    clob.place_order = AsyncMock(side_effect=Exception("500 internal server error"))
+    clob  = MagicMock()
+    clob.create_order  = MagicMock(return_value=MagicMock())
+    clob.post_order    = MagicMock(side_effect=Exception("500 internal server error"))
+    clob.cancel_orders = AsyncMock()
 
     result = await actor.apply([PlaceMutation(intent=make_intent())], clob)
 
-    assert clob.place_order.await_count == 1
+    assert clob.post_order.call_count == 1
     assert result["placed"] == []
 
 
@@ -252,15 +269,18 @@ async def test_confirm_cancel_mode_awaits_cancel_before_place():
     tracker.confirm_cancel_mode = True
 
     call_log: list[str] = []
+
     async def log_cancel(*_args, **_kwargs):
         call_log.append("cancel")
-    async def log_place(*_args, **_kwargs):
-        call_log.append("place")
-        return "placed_id"
 
-    clob = AsyncMock()
+    def log_place(*_args, **_kwargs):
+        call_log.append("place")
+        return {"orderID": "placed_id"}
+
+    clob = MagicMock()
     clob.cancel_orders = AsyncMock(side_effect=log_cancel)
-    clob.place_order   = AsyncMock(side_effect=log_place)
+    clob.create_order  = MagicMock(return_value=MagicMock())
+    clob.post_order    = MagicMock(side_effect=log_place)
 
     mutations = [
         CancelMutation(order_id="c1", token_id="tok1"),
