@@ -4,6 +4,13 @@ Market WebSocket gateway.
 FR-105: Subscribe to target token IDs via the market channel.
 FR-108: Exponential backoff reconnect (1s → 2s → 4s → … → 30s cap).
 FR-109: Dynamic subscribe/unsubscribe without full reconnect.
+
+Book state management:
+  - "book" events (full snapshot): replace the entire local book for that token.
+  - "price_change" events (delta): apply individual level changes from the
+    `changes` array (side/price/size; size=0 means level removed).
+  The gateway maintains per-token local books so that every BookEvent emitted
+  to the queue is always a complete, self-consistent snapshot.
 """
 
 import asyncio
@@ -40,6 +47,9 @@ class MarketStreamGateway:
         self._delta_threshold = delta_threshold
         self._subscribed: set[str] = set()
         self._missed_delta_counts: dict[str, int] = {}
+        # Per-token local books: token_id → (bids, asks)
+        # Each side is a dict keyed by price string → size float.
+        self._local_books: dict[str, tuple[dict[str, float], dict[str, float]]] = {}
         self._ws = None
         self._running = False
 
@@ -92,6 +102,8 @@ class MarketStreamGateway:
         if not removed:
             return
         self._subscribed.difference_update(removed)
+        for tid in removed:
+            self._local_books.pop(tid, None)
         if self._ws:
             await self._ws.send(json.dumps({
                 "action": "unsubscribe",
@@ -111,27 +123,80 @@ class MarketStreamGateway:
             log.debug("Market WS: non-JSON message: %r", raw)
             return
 
-        if not isinstance(msg, dict):
+        # Market channel sends either a single dict or a list of event dicts
+        if isinstance(msg, list):
+            events = msg
+        elif isinstance(msg, dict):
+            events = [msg]
+        else:
             return
 
-        event_type = msg.get("event_type") or msg.get("type")
-        if event_type in ("book", "price_change"):
-            await self._emit_book_event(msg)
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("event_type") or event.get("type")
+            if event_type in ("book", "price_change"):
+                await self._apply_and_emit(event, event_type)
+            elif event_type:
+                log.debug("Market WS: unhandled event_type=%r", event_type)
 
-    async def _emit_book_event(self, msg: dict) -> None:
+    async def _apply_and_emit(self, msg: dict, event_type: str) -> None:
+        """Update the local book from this event, then emit a full BookEvent."""
         token_id = msg.get("asset_id") or msg.get("token_id", "")
+        if not token_id:
+            return
 
-        bids = [
-            PriceLevel(price=float(b["price"]), size=float(b["size"]))
-            for b in msg.get("bids", [])
-        ]
-        asks = [
-            PriceLevel(price=float(a["price"]), size=float(a["size"]))
-            for a in msg.get("asks", [])
-        ]
+        if event_type == "book":
+            # Full snapshot: replace the entire local book
+            bids: dict[str, float] = {}
+            asks: dict[str, float] = {}
+            for b in msg.get("bids", []):
+                size = float(b["size"])
+                if size > 0:
+                    bids[b["price"]] = size
+            for a in msg.get("asks", []):
+                size = float(a["size"])
+                if size > 0:
+                    asks[a["price"]] = size
+            self._local_books[token_id] = (bids, asks)
 
-        # Sequence gap detection via crossed/empty book as ordering anomaly
-        if bids and asks and bids[0].price >= asks[0].price:
+        elif event_type == "price_change":
+            # Delta: apply individual level changes
+            if token_id not in self._local_books:
+                # No snapshot yet — cannot apply delta; skip and wait for book event
+                return
+            bids, asks = self._local_books[token_id]
+            for change in msg.get("changes", []):
+                side = change.get("side", "")
+                price_str = str(change.get("price", ""))
+                size = float(change.get("size", 0))
+                if side == "BUY":
+                    if size == 0:
+                        bids.pop(price_str, None)
+                    else:
+                        bids[price_str] = size
+                elif side == "SELL":
+                    if size == 0:
+                        asks.pop(price_str, None)
+                    else:
+                        asks[price_str] = size
+
+        # Build sorted PriceLevel lists from the current local book state
+        if token_id not in self._local_books:
+            return
+
+        bids_dict, asks_dict = self._local_books[token_id]
+        sorted_bids = sorted(
+            [PriceLevel(price=float(p), size=s) for p, s in bids_dict.items()],
+            key=lambda l: -l.price,
+        )
+        sorted_asks = sorted(
+            [PriceLevel(price=float(p), size=s) for p, s in asks_dict.items()],
+            key=lambda l: l.price,
+        )
+
+        # Sequence gap detection: crossed book signals a missed or out-of-order delta
+        if sorted_bids and sorted_asks and sorted_bids[0].price >= sorted_asks[0].price:
             count = self._missed_delta_counts.get(token_id, 0) + 1
             self._missed_delta_counts[token_id] = count
             log.debug("Market WS: crossed book on %s (missed=%d)", token_id, count)
@@ -142,10 +207,10 @@ class MarketStreamGateway:
             return
 
         self._missed_delta_counts[token_id] = 0
-        event = BookEvent(
+        book_event = BookEvent(
             token_id=token_id,
-            bids=bids,
-            asks=asks,
+            bids=sorted_bids,
+            asks=sorted_asks,
             timestamp=time.time(),
         )
-        await self._book_queue.put(event)
+        await self._book_queue.put(book_event)
