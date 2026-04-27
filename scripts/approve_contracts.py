@@ -59,18 +59,31 @@ _SUFFICIENT_ALLOWANCE = 100_000 * 10 ** 6
 
 async def _fetch_any_token_id(http_client) -> str:
     """Fetch one active token ID from the Gamma API — needed for CONDITIONAL approval."""
+    import json as _json
+
     resp = await http_client.get(
         "https://gamma-api.polymarket.com/markets",
-        params={"limit": 1, "active": "true", "closed": "false"},
+        params={"limit": 5, "active": "true", "closed": "false"},
     )
     resp.raise_for_status()
     markets = resp.json()
     if not markets:
         raise RuntimeError("Gamma API returned no markets")
-    token_ids = markets[0].get("clobTokenIds") or []
-    if not token_ids:
-        raise RuntimeError("First market has no clobTokenIds")
-    return token_ids[0]
+
+    for market in markets:
+        raw = market.get("clobTokenIds") or []
+        # API returns clobTokenIds as a JSON-encoded string in some responses
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except Exception:
+                pass
+        if isinstance(raw, list) and raw:
+            token_id = raw[0]
+            if isinstance(token_id, str) and len(token_id) > 10:
+                return token_id
+
+    raise RuntimeError("Could not find a valid token_id in Gamma API response")
 
 
 async def _approve_via_relayer(s) -> None:
