@@ -128,8 +128,8 @@ class StrategyA(BaseStrategy):
             bid_price -= offset * tick
             ask_price += offset * tick
 
-        # Gate 6: post-adjustment quoted spread must be at least 1 tick (1¢)
-        if ask_price - bid_price < 0.01:
+        # Gate 6: post-adjustment quoted spread must be at least 1 tick
+        if ask_price - bid_price < tick:
             return []
 
         # Clamp to valid probability range
