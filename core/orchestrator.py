@@ -173,6 +173,12 @@ class Orchestrator:
             ack_queue=ack_queue,
         )
 
+        # Start gateway connection loops as background tasks
+        self._background_tasks += [
+            asyncio.create_task(self._market_gateway.connect(), name="market_ws"),
+            asyncio.create_task(self._user_gateway.connect(), name="user_ws"),
+        ]
+
         # ── Step 11: Start liveness loops ─────────────────────────────────────
         log.info("Step 11: starting liveness loops")
         self._alerter = Alerter(
