@@ -138,13 +138,12 @@ class Orchestrator:
 
         # Lazy import to allow unit-test mocking
         from py_clob_client.client import ClobClient  # type: ignore[import]
-        _built = build_clob_client(s, creds)
         self._clob_client = ClobClient(
             host=CLOB_HOST,
             key=s.PRIVATE_KEY,
             chain_id=CHAIN_ID,
-            creds=_built.creds,
-            signature_type=_built.builder.sig_type if _built.builder else None,
+            creds=build_clob_client(s, creds).creds,
+            signature_type=2 if s.USE_RELAYER else 0,
             funder=s.PROXY_WALLET or None,
         )
 
