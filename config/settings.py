@@ -21,8 +21,8 @@ class Settings(BaseSettings):
 
     # ── Strategy enablement ───────────────────────────────────────────────────
     STRATEGY_A_ENABLED: bool = True
-    STRATEGY_B_ENABLED: bool = True
-    STRATEGY_C_ENABLED: bool = True
+    STRATEGY_B_ENABLED: bool = False
+    STRATEGY_C_ENABLED: bool = False
     STRATEGY_A_UNIVERSE_TAGS: list[str] = []
 
     # ── Heartbeat ─────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     SCAN_INTERVAL_MS: int = 900_000        # 15 min — top-500 markets change slowly
     REDEMPTION_POLL_INTERVAL_S: int = 60
     EOA_FALLBACK_TIMEOUT_S: int = 30
-    MIN_USDC_BALANCE: float = 100.0
+    MIN_USDC_BALANCE: float = 50.0
     RPC_MAX_LATENCY_MS: int = 150
     LATENCY_ALERT_P95_MS: int = 150
     REDIS_OUTAGE_HALT_S: int = 300

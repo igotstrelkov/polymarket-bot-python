@@ -114,8 +114,8 @@ def test_state_encryption_key_default():
 def test_strategy_flags_default():
     s = make_settings()
     assert s.STRATEGY_A_ENABLED is True
-    assert s.STRATEGY_B_ENABLED is True
-    assert s.STRATEGY_C_ENABLED is True
+    assert s.STRATEGY_B_ENABLED is False
+    assert s.STRATEGY_C_ENABLED is False
 
 
 def test_strategy_a_universe_tags_default():
