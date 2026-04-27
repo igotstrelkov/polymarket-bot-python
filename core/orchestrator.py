@@ -479,6 +479,18 @@ class Orchestrator:
             inventory=inventory,
             fee_cache=self._fee_cache,
         )
+        if not hasattr(self, "_diag_counts"):
+            self._diag_counts: dict[str, int] = {}
+        dc = self._diag_counts.get(event.token_id, 0) + 1
+        self._diag_counts[event.token_id] = dc
+        if dc <= 3:
+            log.info(
+                "DIAG book_event #%d token=...%s mid=%.4f intents=%d fee_bps=%s",
+                dc, event.token_id[-8:],
+                book.mid() or 0,
+                len(intents),
+                self._fee_cache.get(event.token_id),
+            )
 
         # Diff desired vs confirmed
         confirmed = [

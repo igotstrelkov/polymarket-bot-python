@@ -50,6 +50,7 @@ class MarketStreamGateway:
         # Per-token local books: token_id → (bids, asks)
         # Each side is a dict keyed by price string → size float.
         self._local_books: dict[str, tuple[dict[str, float], dict[str, float]]] = {}
+        self._emit_counts: dict[str, int] = {}  # diagnostic: events emitted per token
         self._ws = None
         self._running = False
 
@@ -214,3 +215,11 @@ class MarketStreamGateway:
             timestamp=time.time(),
         )
         await self._book_queue.put(book_event)
+        n = self._emit_counts.get(token_id, 0) + 1
+        self._emit_counts[token_id] = n
+        if n <= 3 or n % 100 == 0:
+            log.info(
+                "Market WS: emitted BookEvent #%d token=...%s bids=%d asks=%d mid=%.4f",
+                n, token_id[-8:], len(sorted_bids), len(sorted_asks),
+                (sorted_bids[0].price + sorted_asks[0].price) / 2 if sorted_bids and sorted_asks else 0,
+            )
