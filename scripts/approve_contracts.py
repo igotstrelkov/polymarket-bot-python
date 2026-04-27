@@ -101,6 +101,8 @@ async def _approve_via_relayer(s) -> None:
         key=s.PRIVATE_KEY,
         chain_id=CHAIN_ID,
         creds=build_clob_client(s, creds).creds,
+        signature_type=2,
+        funder=s.PROXY_WALLET or None,
     )
 
     # COLLATERAL (USDC.e ERC-20) — no token_id needed

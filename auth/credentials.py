@@ -55,6 +55,7 @@ def build_clob_client(settings: Settings, creds: ApiCreds):
     from py_clob_client.clob_types import ApiCreds as SdkCreds  # type: ignore[import]
 
     signature_type = 2 if settings.USE_RELAYER else 0
+    funder = settings.PROXY_WALLET or None
     sdk_creds = SdkCreds(
         api_key=creds.api_key,
         api_secret=creds.secret,
@@ -65,4 +66,5 @@ def build_clob_client(settings: Settings, creds: ApiCreds):
         chain_id=CHAIN_ID,
         creds=sdk_creds,
         signature_type=signature_type,
+        funder=funder,
     )

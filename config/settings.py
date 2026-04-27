@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # ── Operational ───────────────────────────────────────────────────────────
     DRY_RUN: bool = True
     USE_RELAYER: bool = True
+    PROXY_WALLET: str = "0x68F9c9b50b7D90B8457dD956f4800972bB0F50c2"   # Gnosis Safe address Polymarket auto-creates per account
     POLYGON_RPC_URL: str
     PRIVATE_KEY: str
     BUILDER_API_KEY: str
