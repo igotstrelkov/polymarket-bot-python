@@ -87,8 +87,8 @@ class UniverseScanner:
         current: dict[str, MarketCapabilityModel] = {}
 
         for raw in raw_markets:
-            token_id = raw.get("token_id") or raw.get("clobTokenIds", [""])[0]
-            if not token_id:
+            token_id = raw.get("token_id") or ""
+            if not token_id or len(token_id) <= 10:
                 continue
 
             fee_rate_bps = self.fee_cache.get(token_id) or 0
@@ -202,9 +202,17 @@ class UniverseScanner:
             if not page:
                 break
 
-            # Flatten multi-outcome markets to one entry per token
+            # Flatten multi-outcome markets to one entry per token.
+            # clobTokenIds comes from Gamma as a JSON-encoded string, not a list.
             for market in page:
-                clob_ids: list[str] = market.get("clobTokenIds") or []
+                import json as _json
+                raw_ids = market.get("clobTokenIds") or []
+                if isinstance(raw_ids, str):
+                    try:
+                        raw_ids = _json.loads(raw_ids)
+                    except Exception:
+                        raw_ids = []
+                clob_ids = [t for t in raw_ids if isinstance(t, str) and len(t) > 10]
                 if not clob_ids:
                     markets.append(market)
                     continue
