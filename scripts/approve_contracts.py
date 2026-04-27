@@ -57,8 +57,25 @@ _MAX_UINT256 = 2 ** 256 - 1
 _SUFFICIENT_ALLOWANCE = 100_000 * 10 ** 6
 
 
+async def _fetch_any_token_id(http_client) -> str:
+    """Fetch one active token ID from the Gamma API — needed for CONDITIONAL approval."""
+    resp = await http_client.get(
+        "https://gamma-api.polymarket.com/markets",
+        params={"limit": 1, "active": "true", "closed": "false"},
+    )
+    resp.raise_for_status()
+    markets = resp.json()
+    if not markets:
+        raise RuntimeError("Gamma API returned no markets")
+    token_ids = markets[0].get("clobTokenIds") or []
+    if not token_ids:
+        raise RuntimeError("First market has no clobTokenIds")
+    return token_ids[0]
+
+
 async def _approve_via_relayer(s) -> None:
     """Approval via Builder Relayer (USE_RELAYER=true, Type 2 / Gnosis Safe)."""
+    import httpx
     from py_clob_client.client import ClobClient  # type: ignore[import]
     from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
 
@@ -73,16 +90,35 @@ async def _approve_via_relayer(s) -> None:
         creds=build_clob_client(s, creds).creds,
     )
 
-    for asset_type in (AssetType.COLLATERAL, AssetType.CONDITIONAL):
-        log.info("Requesting approval for %s...", asset_type)
-        try:
-            resp = client.update_balance_allowance(
-                params=BalanceAllowanceParams(asset_type=asset_type)
+    # COLLATERAL (USDC.e ERC-20) — no token_id needed
+    log.info("Requesting approval for COLLATERAL...")
+    try:
+        resp = client.update_balance_allowance(
+            params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+        )
+        log.info("COLLATERAL: %s", resp)
+    except Exception as exc:
+        log.error("update_balance_allowance(COLLATERAL) failed: %s", exc)
+        sys.exit(1)
+
+    # CONDITIONAL (CTF ERC-1155) — requires a valid token_id
+    log.info("Fetching a valid token_id for CONDITIONAL approval...")
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        token_id = await _fetch_any_token_id(http)
+    log.info("Using token_id: %s", token_id)
+
+    log.info("Requesting approval for CONDITIONAL...")
+    try:
+        resp = client.update_balance_allowance(
+            params=BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL,
+                token_id=token_id,
             )
-            log.info("%s: %s", asset_type, resp)
-        except Exception as exc:
-            log.error("update_balance_allowance(%s) failed: %s", asset_type, exc)
-            sys.exit(1)
+        )
+        log.info("CONDITIONAL: %s", resp)
+    except Exception as exc:
+        log.error("update_balance_allowance(CONDITIONAL) failed: %s", exc)
+        sys.exit(1)
 
     log.info("Relayer approvals complete")
 
