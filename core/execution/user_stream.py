@@ -86,6 +86,11 @@ class UserStreamGateway:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _BACKOFF_MAX)
 
+    async def send(self, message: str) -> None:
+        """Send a raw message to the websocket if connected."""
+        if self._ws:
+            await self._ws.send(message)
+
     async def stop(self) -> None:
         self._running = False
         if self._ws:
