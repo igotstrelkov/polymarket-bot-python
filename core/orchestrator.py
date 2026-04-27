@@ -208,6 +208,12 @@ class Orchestrator:
             consecutive_miss_threshold=s.FEE_CONSECUTIVE_MISS_THRESHOLD,
             deviation_threshold_pct=s.FEE_DEVIATION_THRESHOLD_PCT,
         )
+        # Wire fill-triggered refetch (FR-151) and start periodic refresh loop
+        self._fee_cache.set_refetch_fn(self._fetch_fee_rate)
+        self._background_tasks.append(
+            asyncio.create_task(self._fee_refresh_loop(), name="fee_refresh_loop")
+        )
+
         scanner = UniverseScanner(
             http_client=self._http,
             fee_cache=self._fee_cache,
@@ -390,6 +396,13 @@ class Orchestrator:
             self._book_stores.pop(tid, None)
             self._inventories.pop(tid, None)
 
+        # Warm fee cache for new tokens so quotes can flow immediately on first BookEvent
+        if new_token_ids:
+            await asyncio.gather(
+                *(self._refresh_fee_rate(tid) for tid in new_token_ids),
+                return_exceptions=True,
+            )
+
         # Subscribe WS gateway to newly discovered tokens
         if new_token_ids and self._market_gateway:
             await self._market_gateway.subscribe(new_token_ids)
@@ -494,23 +507,60 @@ class Orchestrator:
 
     async def _handle_fill_event(self, event: FillEvent) -> None:
         """FillEvent → record fill → update inventory → re-evaluate."""
+        is_maker = event.maker_taker == "MAKER"
         self._fill_ledger.record_fill(
-            fill_id=event.fill_id,
+            fill_id=event.order_id,  # FillEvent has no separate fill_id; order_id is the best proxy
             order_id=event.order_id,
             token_id=event.token_id,
             side=event.side,
             price=event.price,
             size=event.size,
-            strategy=getattr(event, "strategy", "A"),
-            is_maker=getattr(event, "is_maker", True),
+            fee_paid=0.0,  # accurate fee requires live fee_rate; 0.0 is a safe placeholder
+            strategy=event.strategy,
+            is_maker=is_maker,
         )
         if event.token_id in self._inventories:
             self._inventories[event.token_id] = apply_fill(
                 self._inventories[event.token_id], event.side, event.size
             )
         if self._fee_cache:
-            self._fee_cache.on_fill(event.token_id)
+            await self._fee_cache.on_fill(event.token_id)
         self._metrics.inc_trades()
+
+    # ── Fee rate helpers ──────────────────────────────────────────────────────
+
+    async def _fetch_fee_rate(self, token_id: str) -> int:
+        """Fetch live fee rate from CLOB API using L2 HMAC auth. Returns bps."""
+        from py_clob_client.headers.headers import create_level_2_headers
+        from py_clob_client.clob_types import RequestArgs
+        path = f"/fee-rate/{token_id}"
+        hdrs = create_level_2_headers(
+            self._clob_client.signer,
+            self._clob_client.creds,
+            RequestArgs(method="GET", request_path=path),
+        )
+        resp = await self._http.get(f"{CLOB_HOST}{path}", headers=hdrs)
+        resp.raise_for_status()
+        return int(resp.json()["base_fee"])
+
+    async def _refresh_fee_rate(self, token_id: str) -> None:
+        """Fetch fee rate and write to cache; logs on failure."""
+        try:
+            bps = await self._fetch_fee_rate(token_id)
+            self._fee_cache.set(token_id, bps)
+            log.debug("fee cached: %s → %d bps", token_id, bps)
+        except Exception as exc:
+            log.warning("fee fetch failed %s: %s", token_id, exc)
+
+    async def _fee_refresh_loop(self) -> None:
+        """Refresh fee rates for all tracked markets before TTL expires."""
+        ttl_s = self._settings.FEE_CACHE_TTL_S
+        refresh_interval = max(10, ttl_s - 5)
+        while self._running:
+            await asyncio.sleep(refresh_interval)
+            for token_id in list(self._markets):
+                await self._refresh_fee_rate(token_id)
+                await asyncio.sleep(0.05)  # yield between per-token fetches
 
     # ── Startup helpers ───────────────────────────────────────────────────────
 
