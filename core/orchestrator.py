@@ -484,10 +484,15 @@ class Orchestrator:
         dc = self._diag_counts.get(event.token_id, 0) + 1
         self._diag_counts[event.token_id] = dc
         if dc <= 3:
+            _spread = (
+                (event.asks[0].price - event.bids[0].price)
+                if event.bids and event.asks else 0.0
+            )
             log.info(
-                "DIAG book_event #%d token=...%s mid=%.4f intents=%d fee_bps=%s",
+                "DIAG book_event #%d token=...%s mid=%.4f spread=%.4f intents=%d fee_bps=%s",
                 dc, event.token_id[-8:],
                 book.mid() or 0,
+                _spread,
                 len(intents),
                 self._fee_cache.get(event.token_id),
             )

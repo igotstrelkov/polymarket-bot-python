@@ -180,7 +180,7 @@ def test_request_timeout_default():
 
 def test_mm_defaults():
     s = make_settings()
-    assert s.MM_BASE_SPREAD == 0.04
+    assert s.MM_BASE_SPREAD == 0.01
     assert s.MM_COST_FLOOR == 0.01
     assert s.MM_ORDER_SIZE == 10
     assert s.MM_MIN_ORDER_SIZE == 0

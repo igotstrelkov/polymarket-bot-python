@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     REQUEST_TIMEOUT_S: int = 10
 
     # ── Market making ─────────────────────────────────────────────────────────
-    MM_BASE_SPREAD: float = 0.04
+    MM_BASE_SPREAD: float = 0.01
     MM_COST_FLOOR: float = 0.01
     MM_ORDER_SIZE: int = 10
     MM_MIN_ORDER_SIZE: int = 0
