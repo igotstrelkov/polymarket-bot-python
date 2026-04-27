@@ -230,12 +230,17 @@ async def test_returns_empty_when_inventory_halted():
 # ── Gate 6: post-adjustment spread guard ────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_returns_empty_when_post_adjustment_spread_too_narrow():
-    """bid=0.485, ask=0.515 → after improving: bid=0.495, ask=0.505 → spread=0.01 < 0.03."""
-    book = make_book(bid=0.485, ask=0.515)  # observed spread = 0.03 (passes FR-153)
+async def test_improves_by_one_tick_when_spread_allows():
+    """bid=0.485, ask=0.515 → observed spread=0.03 > 2 ticks → improves by 1 tick each side.
+    Quoted bid=0.495, ask=0.505 (spread=0.01 ≥ Gate-6 minimum of 0.01 → produces signals)."""
+    book = make_book(bid=0.485, ask=0.515)  # observed spread = 0.03
     s = make_strategy(base_spread=0.02)  # lower base_spread so FR-153 passes
     result = await s.evaluate(make_market(), book, make_inventory(), make_fee_cache())
-    assert result == []
+    assert len(result) == 2
+    bid_sig = next(sig for sig in result if sig.side == "BUY")
+    ask_sig = next(sig for sig in result if sig.side == "SELL")
+    assert bid_sig.price == pytest.approx(0.495)
+    assert ask_sig.price == pytest.approx(0.505)
 
 
 # ── Happy path ────────────────────────────────────────────────────────────────

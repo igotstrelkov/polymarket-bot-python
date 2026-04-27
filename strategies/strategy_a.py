@@ -112,10 +112,15 @@ class StrategyA(BaseStrategy):
         if abs(skew) >= self.inventory_halt_threshold:
             return []
 
-        # Quote positioning: improve by one tick from best bid/ask
+        # Quote positioning: improve by one tick when spread allows it (>2 ticks);
+        # on tight 1–2-tick markets join at best bid/ask to avoid crossing the book.
         tick = market.tick_size
-        bid_price = best_bid + tick
-        ask_price = best_ask - tick
+        if observed_spread > 2 * tick:
+            bid_price = best_bid + tick
+            ask_price = best_ask - tick
+        else:
+            bid_price = best_bid
+            ask_price = best_ask
 
         # Apply inventory skew offset when |skew| exceeds threshold
         if abs(skew) >= self.inventory_skew_threshold:
