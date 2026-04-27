@@ -21,7 +21,7 @@ from config.settings import Settings
 from core.control.capability_enricher import MarketCapabilityModel
 from core.control.universe_scanner import UniverseScanner
 from core.execution.book_state import BookStateStore
-from core.execution.execution_actor import ExecutionActor, diff as order_diff
+from core.execution.execution_actor import ConfirmedOrder, ExecutionActor, diff as order_diff
 from core.execution.liveness import (
     order_safety_heartbeat_loop,
     market_user_ws_heartbeat_loop,
@@ -39,7 +39,7 @@ from core.execution.types import BookEvent, FillEvent
 from core.execution.user_stream import UserStreamGateway
 from core.ledger.auto_redemption import RedemptionRequest, auto_redeem
 from core.ledger.fill_position_ledger import FillAndPositionLedger
-from core.ledger.order_ledger import OrderLedger
+from core.ledger.order_ledger import OrderLedger, OrderState
 from core.ledger.recovery_coordinator import RecoveryCoordinator
 from core.ledger.reward_rebate_ledger import RewardAndRebateLedger as RewardRebateLedger
 from fees.cache import FeeRateCache
@@ -500,11 +500,21 @@ class Orchestrator:
                 self._fee_cache.get(event.token_id),
             )
 
-        # Diff desired vs confirmed
+        # Diff against live ledger — the recovery snapshot never includes orders
+        # placed after startup, causing duplicates on every subsequent book event.
         confirmed = [
-            self._order_ledger.get(oid)
-            for oid in self._recovery.confirmed_order_ids()
-            if self._order_ledger.get(oid) is not None
+            ConfirmedOrder(
+                order_id=r.order_id,
+                token_id=r.token_id,
+                side=r.side,
+                price=r.price,
+                size=r.size,
+                time_in_force=r.time_in_force,
+                post_only=r.post_only,
+                strategy=r.strategy,
+            )
+            for r in self._order_ledger.open_orders()
+            if r.state in (OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED)
         ]
         mutations = order_diff(intents, confirmed or [])
 
