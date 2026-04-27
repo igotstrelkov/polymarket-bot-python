@@ -235,7 +235,7 @@ def test_watchlist_defaults():
 
 def test_infrastructure_defaults():
     s = make_settings()
-    assert s.SCAN_INTERVAL_MS == 300_000
+    assert s.SCAN_INTERVAL_MS == 900_000
     assert s.REDEMPTION_POLL_INTERVAL_S == 60
     assert s.EOA_FALLBACK_TIMEOUT_S == 30
     assert s.MIN_USDC_BALANCE == 100.0

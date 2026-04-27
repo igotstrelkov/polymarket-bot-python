@@ -167,12 +167,18 @@ class UniverseScanner:
 
     # ── Internal HTTP helpers ─────────────────────────────────────────────────
 
-    async def _fetch_all_markets(self) -> list[dict]:
-        """Paginate the Gamma API and return all raw market dicts (FR-101)."""
+    async def _fetch_all_markets(self, max_pages: int = 10) -> list[dict]:
+        """Paginate the Gamma API and return raw market dicts (FR-101).
+
+        max_pages caps the number of API calls per cycle (default 10 = 500 markets).
+        The Gamma API returns markets sorted by volume descending, so the highest-
+        volume markets — which are the best candidates — appear on the first pages.
+        """
         markets: list[dict] = []
         offset = 0
+        pages_fetched = 0
 
-        while True:
+        while pages_fetched < max_pages:
             params: dict[str, Any] = {
                 "limit": _PAGE_SIZE,
                 "offset": offset,
@@ -205,8 +211,10 @@ class UniverseScanner:
                 for token_id in clob_ids:
                     markets.append({**market, "token_id": token_id})
 
+            pages_fetched += 1
             if len(page) < _PAGE_SIZE:
                 break
             offset += _PAGE_SIZE
 
+        log.debug("UniverseScanner: fetched %d markets in %d pages", len(markets), pages_fetched)
         return markets
