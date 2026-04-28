@@ -475,6 +475,12 @@ class Orchestrator:
             self._inventories[event.token_id] = InventoryState()
         inventory = self._inventories[event.token_id]
 
+        # Sync per-market position into each strategy before evaluation.
+        # yes_shares is the net token count for this market, updated on every fill.
+        for _strategy in self._quote_engine.strategies:
+            if hasattr(_strategy, "current_position"):
+                _strategy.current_position = inventory.yes_shares
+
         intents = await self._quote_engine.compute(
             market=market,
             book=book,

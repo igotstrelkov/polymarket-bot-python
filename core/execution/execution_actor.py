@@ -251,7 +251,7 @@ class ExecutionActor:
             size=float(intent.size),
             side=intent.side,
             fee_rate_bps=intent.fee_rate_bps,
-            expiration=intent.expiration or 0,
+            expiration=intent.expiration if intent.expiration is not None else 0,
         )
         options = PartialCreateOrderOptions(
             tick_size=str(intent.tick_size),

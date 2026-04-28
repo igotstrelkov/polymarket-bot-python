@@ -251,3 +251,88 @@ async def test_sell_signal_price_clamped_to_rewards_range():
     engine = QuoteEngine(strategies=[strat])
     result = await engine.compute(market, make_book(), make_inventory(), make_fee_cache())
     assert result[0].price == pytest.approx(0.52)
+
+
+# ── current_position wiring (orchestrator contract) ───────────────────────────
+
+@pytest.mark.asyncio
+async def test_sell_generated_when_position_synced_before_compute():
+    """When caller sets strategy.current_position = inventory.yes_shares before
+    compute(), SELL is generated on non-negRisk markets once position >= order_size.
+
+    This verifies the orchestrator contract: it must sync current_position from
+    inventory.yes_shares before calling QuoteEngine.compute().
+    """
+    from strategies.strategy_a import StrategyA
+
+    strategy = StrategyA(
+        order_size=10,
+        base_spread=0.04,
+        cost_floor=0.01,
+    )
+    # Simulate what the orchestrator does: set position from inventory.yes_shares
+    strategy.current_position = 10.0
+
+    engine = QuoteEngine(strategies=[strategy])
+
+    non_neg_risk_market = MarketCapabilityModel(
+        token_id="tok1",
+        condition_id="c1",
+        tick_size=0.01,
+        minimum_order_size=1.0,
+        neg_risk=False,
+        fees_enabled=True,
+        fee_rate_bps=78,
+        seconds_delay=0,
+        accepting_orders=True,
+        game_start_time=None,
+        resolution_time=None,
+        rewards_min_size=None,
+        rewards_max_spread=None,
+        rewards_daily_rate=None,
+        adjusted_midpoint=None,
+        tags=[],
+    )
+
+    result = await engine.compute(
+        non_neg_risk_market, make_book(), make_inventory(), make_fee_cache()
+    )
+    sides = {i.side for i in result}
+    assert "SELL" in sides, "SELL must appear when current_position >= order_size"
+
+
+@pytest.mark.asyncio
+async def test_no_sell_when_position_not_synced():
+    """Without syncing current_position, SELL is never generated on non-negRisk markets."""
+    from strategies.strategy_a import StrategyA
+
+    strategy = StrategyA(order_size=10, base_spread=0.04, cost_floor=0.01)
+    # current_position left at default 0.0 (not synced)
+
+    engine = QuoteEngine(strategies=[strategy])
+
+    non_neg_risk_market = MarketCapabilityModel(
+        token_id="tok1",
+        condition_id="c1",
+        tick_size=0.01,
+        minimum_order_size=1.0,
+        neg_risk=False,
+        fees_enabled=True,
+        fee_rate_bps=78,
+        seconds_delay=0,
+        accepting_orders=True,
+        game_start_time=None,
+        resolution_time=None,
+        rewards_min_size=None,
+        rewards_max_spread=None,
+        rewards_daily_rate=None,
+        adjusted_midpoint=None,
+        tags=[],
+    )
+
+    result = await engine.compute(
+        non_neg_risk_market, make_book(), make_inventory(), make_fee_cache()
+    )
+    sides = {i.side for i in result}
+    assert "SELL" not in sides
+    assert "BUY" in sides
