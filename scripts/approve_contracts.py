@@ -89,8 +89,8 @@ async def _fetch_any_token_id(http_client) -> str:
 async def _approve_via_relayer(s) -> None:
     """Approval via Builder Relayer (USE_RELAYER=true, Type 2 / Gnosis Safe)."""
     import httpx
-    from py_clob_client.client import ClobClient  # type: ignore[import]
-    from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+    from py_clob_client_v2.client import ClobClient  # type: ignore[import]
+    from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
 
     from auth.credentials import CLOB_HOST, CHAIN_ID, build_clob_client, derive_credentials
 

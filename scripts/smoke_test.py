@@ -126,7 +126,7 @@ async def _run() -> None:
         log.info("Step 4: placing $0.01 Post-Only GTC order on %s @ %s...", token_id, _ORDER_PRICE)
         t0 = time.monotonic()
         try:
-            from py_clob_client.clob_types import OrderArgs, OrderType  # type: ignore[import]
+            from py_clob_client_v2.clob_types import OrderArgs, OrderType  # type: ignore[import]
 
             order_args = OrderArgs(
                 token_id=token_id,

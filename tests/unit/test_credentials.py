@@ -1,7 +1,7 @@
 """
 Unit tests for auth/credentials.py.
 
-py_clob_client is mocked via sys.modules so these tests run without the SDK
+py_clob_client_v2 is mocked via sys.modules so these tests run without the SDK
 installed. The mock is installed at module level so lazy imports inside
 derive_credentials() and build_clob_client() resolve to the mock.
 """
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # ── Inject mock SDK into sys.modules before any test runs ────────────────────
-# auth/credentials.py uses lazy `from py_clob_client.* import ...` so these
+# auth/credentials.py uses lazy `from py_clob_client_v2.* import ...` so these
 # mocks must be present before the functions execute, not just before import.
 
 _mock_clob_cls = MagicMock(name="ClobClient")
@@ -24,9 +24,9 @@ _mock_clob_module.ClobClient = _mock_clob_cls
 _mock_clob_types_module = MagicMock()
 _mock_clob_types_module.ApiCreds = _mock_sdk_creds_cls
 
-sys.modules["py_clob_client"] = MagicMock()
-sys.modules["py_clob_client.client"] = _mock_clob_module
-sys.modules["py_clob_client.clob_types"] = _mock_clob_types_module
+sys.modules["py_clob_client_v2"] = MagicMock()
+sys.modules["py_clob_client_v2.client"] = _mock_clob_module
+sys.modules["py_clob_client_v2.clob_types"] = _mock_clob_types_module
 
 # Now safe to import the module under test
 from auth.credentials import (  # noqa: E402
@@ -65,7 +65,7 @@ async def test_derive_credentials_returns_api_creds_named_tuple():
     private_key = "0x" + "b" * 64
 
     mock_instance = MagicMock()
-    mock_instance.create_or_derive_api_creds.return_value = MagicMock(
+    mock_instance.create_or_derive_api_key.return_value = MagicMock(
         api_key="ak", api_secret="as", api_passphrase="ap"
     )
     _mock_clob_cls.return_value = mock_instance
@@ -84,7 +84,7 @@ async def test_derive_credentials_does_not_store_private_key():
     private_key = "0x" + "c" * 64
 
     mock_instance = MagicMock()
-    mock_instance.create_or_derive_api_creds.return_value = MagicMock(
+    mock_instance.create_or_derive_api_key.return_value = MagicMock(
         api_key="k2", api_secret="s2", api_passphrase="p2"
     )
     _mock_clob_cls.return_value = mock_instance
@@ -103,7 +103,7 @@ async def test_derive_credentials_constructs_temporary_client_with_private_key()
     private_key = "0x" + "d" * 64
 
     mock_instance = MagicMock()
-    mock_instance.create_or_derive_api_creds.return_value = MagicMock(
+    mock_instance.create_or_derive_api_key.return_value = MagicMock(
         api_key="x", api_secret="y", api_passphrase="z"
     )
     _mock_clob_cls.return_value = mock_instance

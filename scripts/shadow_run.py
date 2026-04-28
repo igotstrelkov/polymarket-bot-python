@@ -142,7 +142,7 @@ async def _run() -> None:
 
                 # Measure place-then-cancel latency
                 try:
-                    from py_clob_client.clob_types import OrderArgs  # type: ignore[import]
+                    from py_clob_client_v2.clob_types import OrderArgs  # type: ignore[import]
 
                     order_args = OrderArgs(
                         token_id=token_id,

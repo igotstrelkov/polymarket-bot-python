@@ -32,10 +32,10 @@ async def derive_credentials(private_key: str, host: str, chain_id: int) -> ApiC
     returned ApiCreds.
     """
     # Lazy import so unit tests can mock py_clob_client via sys.modules
-    from py_clob_client.client import ClobClient  # type: ignore[import]
+    from py_clob_client_v2.client import ClobClient  # type: ignore[import]
 
     tmp_client = ClobClient(host=host, key=private_key, chain_id=chain_id)
-    sdk_creds = tmp_client.create_or_derive_api_creds()
+    sdk_creds = tmp_client.create_or_derive_api_key()
 
     return ApiCreds(
         api_key=sdk_creds.api_key,
@@ -51,8 +51,8 @@ def build_clob_client(settings: Settings, creds: ApiCreds):
     Signature type 0 (EOA, direct EIP-712) when USE_RELAYER=False.
     """
     # Lazy import so unit tests can mock py_clob_client via sys.modules
-    from py_clob_client.client import ClobClient  # type: ignore[import]
-    from py_clob_client.clob_types import ApiCreds as SdkCreds  # type: ignore[import]
+    from py_clob_client_v2.client import ClobClient  # type: ignore[import]
+    from py_clob_client_v2.clob_types import ApiCreds as SdkCreds  # type: ignore[import]
 
     signature_type = 1 if settings.USE_RELAYER else 0
     funder = settings.PROXY_WALLET or None

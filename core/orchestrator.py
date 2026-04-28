@@ -137,7 +137,7 @@ class Orchestrator:
         self._recovery = RecoveryCoordinator(self._order_ledger)
 
         # Lazy import to allow unit-test mocking
-        from py_clob_client.client import ClobClient  # type: ignore[import]
+        from py_clob_client_v2.client import ClobClient  # type: ignore[import]
         self._clob_client = ClobClient(
             host=CLOB_HOST,
             key=s.PRIVATE_KEY,
@@ -569,8 +569,8 @@ class Orchestrator:
 
     async def _fetch_fee_rate(self, token_id: str) -> int:
         """Fetch live fee rate from CLOB API using L2 HMAC auth. Returns bps."""
-        from py_clob_client.headers.headers import create_level_2_headers
-        from py_clob_client.clob_types import RequestArgs
+        from py_clob_client_v2.headers.headers import create_level_2_headers
+        from py_clob_client_v2.clob_types import RequestArgs
         path = f"/fee-rate/{token_id}"
         hdrs = create_level_2_headers(
             self._clob_client.signer,
