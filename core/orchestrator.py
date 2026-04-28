@@ -506,8 +506,9 @@ class Orchestrator:
                 self._fee_cache.get(event.token_id),
             )
 
-        # Diff against live ledger — the recovery snapshot never includes orders
-        # placed after startup, causing duplicates on every subsequent book event.
+        # Diff against live ledger for THIS token only.
+        # Passing all-token orders to diff() would cause Step 2 to cancel every
+        # order from every other token on each book event.
         confirmed = [
             ConfirmedOrder(
                 order_id=r.order_id,
@@ -521,6 +522,7 @@ class Orchestrator:
             )
             for r in self._order_ledger.open_orders()
             if r.state in (OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED)
+            and r.token_id == event.token_id
         ]
         mutations = order_diff(intents, confirmed or [])
 
