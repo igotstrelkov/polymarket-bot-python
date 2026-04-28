@@ -169,7 +169,7 @@ async def _run() -> None:
         while time.monotonic() < deadline:
             await asyncio.sleep(_ACK_POLL_INTERVAL_S)
             try:
-                open_orders = clob.get_orders({"status": "LIVE"})
+                open_orders = clob.get_open_orders()
                 open_ids = {
                     o.get("id") or o.get("orderID")
                     for o in (open_orders or [])

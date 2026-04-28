@@ -5,7 +5,7 @@ FR-502: On any reconnection, query open orders to rebuild Confirmed state.
 FR-504: On startup, rebuild state from Postgres/Order Ledger and Data API.
 
 Recovery sequence:
-  1. Query open orders from CLOB (get_orders()) → rebuild Confirmed state
+  1. Query open orders from CLOB (get_open_orders()) → rebuild Confirmed state
   2. Load fill/position history from Postgres / Order Ledger
   3. Mark recovery complete; resume quoting
 
@@ -68,7 +68,7 @@ class RecoveryCoordinator:
         try:
             import asyncio
             import inspect
-            _result = clob_client.get_orders()
+            _result = clob_client.get_open_orders()
             if inspect.isawaitable(_result):
                 _result = await _result
             open_orders: list[dict] = _result or []
