@@ -134,7 +134,7 @@ async def test_proceeds_when_resolution_far_away():
     future_10h = datetime.fromtimestamp(time.time() + 36_000, tz=timezone.utc)
     s = make_strategy(resolution_warn_ms=7_200_000)
     result = await s.evaluate(
-        make_market(resolution_time=future_10h), make_book(), make_inventory(), make_fee_cache()
+        make_market(resolution_time=future_10h, neg_risk=True), make_book(), make_inventory(), make_fee_cache()
     )
     assert len(result) == 2
 
@@ -235,7 +235,7 @@ async def test_improves_by_one_tick_when_spread_allows():
     Quoted bid=0.495, ask=0.505 (spread=0.01 ≥ Gate-6 minimum of 0.01 → produces signals)."""
     book = make_book(bid=0.485, ask=0.515)  # observed spread = 0.03
     s = make_strategy(base_spread=0.02)  # lower base_spread so FR-153 passes
-    result = await s.evaluate(make_market(), book, make_inventory(), make_fee_cache())
+    result = await s.evaluate(make_market(neg_risk=True), book, make_inventory(), make_fee_cache())
     assert len(result) == 2
     bid_sig = next(sig for sig in result if sig.side == "BUY")
     ask_sig = next(sig for sig in result if sig.side == "SELL")
@@ -247,20 +247,40 @@ async def test_improves_by_one_tick_when_spread_allows():
 
 @pytest.mark.asyncio
 async def test_returns_bid_and_ask_signals_when_all_gates_pass():
-    """Standard happy-path: bid = best_bid + tick, ask = best_ask - tick."""
+    """Standard happy-path on neg_risk market: bid = best_bid + tick, ask = best_ask - tick."""
     book = make_book(bid=0.46, ask=0.56)  # spread = 0.10
     s = make_strategy()
-    result = await s.evaluate(make_market(), book, make_inventory(), make_fee_cache())
+    result = await s.evaluate(make_market(neg_risk=True), book, make_inventory(), make_fee_cache())
     assert len(result) == 2
     sides = {sig.side for sig in result}
     assert sides == {"BUY", "SELL"}
 
 
 @pytest.mark.asyncio
+async def test_only_buy_on_non_neg_risk_with_no_position():
+    """Non-neg_risk market with zero position: only BUY (no tokens to SELL)."""
+    book = make_book(bid=0.46, ask=0.56)
+    s = make_strategy(current_position=0.0)
+    result = await s.evaluate(make_market(neg_risk=False), book, make_inventory(), make_fee_cache())
+    assert len(result) == 1
+    assert result[0].side == "BUY"
+
+
+@pytest.mark.asyncio
+async def test_sell_on_non_neg_risk_when_holding_position():
+    """Non-neg_risk market with position >= order_size: BUY + SELL both generated."""
+    book = make_book(bid=0.46, ask=0.56)
+    s = make_strategy(current_position=10.0, order_size=10)
+    result = await s.evaluate(make_market(neg_risk=False), book, make_inventory(), make_fee_cache())
+    assert len(result) == 2
+    assert {sig.side for sig in result} == {"BUY", "SELL"}
+
+
+@pytest.mark.asyncio
 async def test_bid_is_best_bid_plus_tick():
     book = make_book(bid=0.46, ask=0.56)
     s = make_strategy()
-    result = await s.evaluate(make_market(tick_size=0.01), book, make_inventory(), make_fee_cache())
+    result = await s.evaluate(make_market(tick_size=0.01, neg_risk=True), book, make_inventory(), make_fee_cache())
     buy_sig = next(sig for sig in result if sig.side == "BUY")
     assert buy_sig.price == pytest.approx(0.47)
 
@@ -269,7 +289,7 @@ async def test_bid_is_best_bid_plus_tick():
 async def test_ask_is_best_ask_minus_tick():
     book = make_book(bid=0.46, ask=0.56)
     s = make_strategy()
-    result = await s.evaluate(make_market(tick_size=0.01), book, make_inventory(), make_fee_cache())
+    result = await s.evaluate(make_market(tick_size=0.01, neg_risk=True), book, make_inventory(), make_fee_cache())
     sell_sig = next(sig for sig in result if sig.side == "SELL")
     assert sell_sig.price == pytest.approx(0.55)
 
@@ -355,7 +375,7 @@ async def test_skew_offset_applied_when_above_threshold():
         inventory_halt_threshold=1.1,  # above max possible skew so halt never fires
         inventory_skew_multiplier=3,
     )
-    result = await s.evaluate(make_market(), book, inventory, make_fee_cache())
+    result = await s.evaluate(make_market(neg_risk=True), book, inventory, make_fee_cache())
     assert len(result) == 2  # produced signals despite skew (halt not triggered)
     buy_sig = next(sig for sig in result if sig.side == "BUY")
     sell_sig = next(sig for sig in result if sig.side == "SELL")

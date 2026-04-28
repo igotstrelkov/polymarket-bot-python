@@ -22,6 +22,11 @@ from core.control.universe_scanner import (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _long_id(name: str) -> str:
+    """Embed name in a fixed-format string >10 chars (no collision risk)."""
+    return f"tok_{name}_000000"
+
+
 def make_raw_market(
     token_id: str = "tok1",
     *,
@@ -39,9 +44,9 @@ def make_raw_market(
         "secondsDelay": 0,
     }
     if clob_ids is not None:
-        m["clobTokenIds"] = clob_ids
+        m["clobTokenIds"] = [_long_id(t) for t in clob_ids]
     else:
-        m["token_id"] = token_id
+        m["token_id"] = _long_id(token_id)
     if resolution_time:
         m["resolutionTime"] = resolution_time
     return m
@@ -149,7 +154,7 @@ async def test_scan_once_flattens_multi_outcome():
     )
     markets = await scanner.scan_once()
     token_ids = {m.token_id for m in markets}
-    assert token_ids == {"yes_tok", "no_tok"}
+    assert token_ids == {_long_id("yes_tok"), _long_id("no_tok")}
 
 
 @pytest.mark.asyncio
@@ -162,7 +167,7 @@ async def test_scan_once_single_outcome_no_clob_ids():
     )
     markets = await scanner.scan_once()
     assert len(markets) == 1
-    assert markets[0].token_id == "solo_tok"
+    assert markets[0].token_id == _long_id("solo_tok")
 
 
 # ── Mutation detection (FR-103a) ──────────────────────────────────────────────
@@ -191,7 +196,7 @@ async def test_mutation_callback_fires_on_change():
 
     assert len(mutation_calls) == 1
     token_id, mutations = mutation_calls[0]
-    assert token_id == "tok1"
+    assert token_id == _long_id("tok1")
     assert MutationType.FEE_RATE_CHANGED in mutations
 
 

@@ -167,7 +167,12 @@ class StrategyA(BaseStrategy):
             tick_size=tick,
         )
 
-        return [
-            Signal(side="BUY",  price=bid_price, **common),
-            Signal(side="SELL", price=ask_price, **common),
-        ]
+        signals = [Signal(side="BUY", price=bid_price, **common)]
+
+        # SELL requires holding the token on non-neg_risk markets.
+        # On neg_risk markets the CLOB accepts USDC as collateral, so SELL always works.
+        # On non-neg_risk markets only SELL when holding enough to cover the order.
+        if market.neg_risk or self.current_position >= self.order_size:
+            signals.append(Signal(side="SELL", price=ask_price, **common))
+
+        return signals

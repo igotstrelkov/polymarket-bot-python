@@ -3,7 +3,8 @@ Unit tests for core/execution/liveness.py.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,28 +29,41 @@ def make_settings(**overrides) -> Settings:
     return Settings(**defaults)
 
 
+def make_clob(*, get_ok_side_effect=None, server_time=None):
+    """MagicMock CLOB client — get_ok/get_server_time are sync (called via run_in_executor)."""
+    clob = MagicMock()
+    if get_ok_side_effect is not None:
+        clob.get_ok.side_effect = get_ok_side_effect
+    clob.get_server_time.return_value = server_time or time.time()
+    return clob
+
+
 # ── Loop 1: Order-safety heartbeat ───────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_heartbeat_fires_at_interval():
     """Heartbeat is called once per sleep interval."""
     settings = make_settings(HEARTBEAT_INTERVAL_MS=100)
-    clob = AsyncMock()
-    clob.post_tick = AsyncMock()
-    clob.get_server_time = AsyncMock(return_value=__import__("time").time())
-    alerts = AsyncMock()
     call_count = 0
 
-    async def fake_tick():
+    def fake_get_ok():
         nonlocal call_count
         call_count += 1
-        if call_count >= 2:
+
+    clob = make_clob(get_ok_side_effect=fake_get_ok)
+    alerts = AsyncMock()
+
+    sleep_count = 0
+
+    async def fake_sleep(_s):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count >= 2:
             raise asyncio.CancelledError
 
-    clob.post_tick.side_effect = fake_tick
-
-    with pytest.raises(asyncio.CancelledError):
-        await order_safety_heartbeat_loop(clob, settings, alerts)
+    with patch("core.execution.liveness.asyncio.sleep", side_effect=fake_sleep):
+        with pytest.raises(asyncio.CancelledError):
+            await order_safety_heartbeat_loop(clob, settings, alerts)
 
     assert call_count == 2
 
@@ -58,9 +72,7 @@ async def test_heartbeat_fires_at_interval():
 async def test_heartbeat_session_dead_after_two_consecutive_misses():
     """Raise RuntimeError and send alert after 2 consecutive missed heartbeat acks."""
     settings = make_settings(HEARTBEAT_INTERVAL_MS=10)
-    clob = AsyncMock()
-    clob.post_tick.side_effect = ConnectionError("refused")
-    clob.get_server_time = AsyncMock(return_value=__import__("time").time())
+    clob = make_clob(get_ok_side_effect=ConnectionError("refused"))
     alerts = AsyncMock()
 
     with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
@@ -74,27 +86,31 @@ async def test_heartbeat_session_dead_after_two_consecutive_misses():
 async def test_heartbeat_resets_miss_counter_on_success():
     """Miss counter resets after a successful heartbeat."""
     settings = make_settings(HEARTBEAT_INTERVAL_MS=10)
-    clob = AsyncMock()
     alerts = AsyncMock()
     call_count = 0
 
-    # First call fails, second succeeds, third cancels
-    async def post_tick_side_effect():
+    # First call fails, second and third succeed; sleep cancels after third
+    sleep_count = 0
+
+    def fake_get_ok():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise ConnectionError("miss")
-        if call_count >= 3:
+
+    async def fake_sleep(_s):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count >= 3:
             raise asyncio.CancelledError
 
-    clob.post_tick.side_effect = post_tick_side_effect
-    clob.get_server_time = AsyncMock(return_value=__import__("time").time())
+    clob = make_clob(get_ok_side_effect=fake_get_ok)
 
-    with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
+    with patch("core.execution.liveness.asyncio.sleep", side_effect=fake_sleep):
         with pytest.raises(asyncio.CancelledError):
             await order_safety_heartbeat_loop(clob, settings, alerts)
 
-    # Alert NOT sent — counter reset on second success
+    # Alert NOT sent — counter reset on second success before reaching threshold
     alerts.send.assert_not_awaited()
 
 
@@ -133,7 +149,7 @@ async def test_heartbeat_format_loop2_sends_ping():
         nonlocal sleep_count
         sleep_count += 1
         if sleep_count >= 2:
-            raise asyncio.CancelledError  # stop after second iteration
+            raise asyncio.CancelledError
 
     async def fake_send(msg):
         pings_sent.append(msg)
@@ -144,7 +160,6 @@ async def test_heartbeat_format_loop2_sends_ping():
         with pytest.raises(asyncio.CancelledError):
             await market_user_ws_heartbeat_loop(market_ws, user_ws)
 
-    # At least one ping was sent (from the first sleep completing)
     assert len(pings_sent) >= 1
     assert sleep_count >= 1
 
@@ -154,7 +169,6 @@ async def test_heartbeat_format_loop2_sends_ping():
 @pytest.mark.asyncio
 async def test_sports_heartbeat_not_started_when_ws_none():
     """Loop 3 returns immediately when sports_ws=None."""
-    # Should return without blocking (no timeout needed)
     await asyncio.wait_for(sports_ws_heartbeat_loop(None), timeout=1.0)
 
 
@@ -187,9 +201,7 @@ async def test_loops_are_independent():
     """Failure in Loop 1 does not prevent Loop 2 or 3 from running."""
     settings = make_settings(HEARTBEAT_INTERVAL_MS=10)
 
-    clob = AsyncMock()
-    clob.post_tick.side_effect = ConnectionError("dead")
-    clob.get_server_time = AsyncMock(return_value=__import__("time").time())
+    clob = make_clob(get_ok_side_effect=ConnectionError("dead"))
     alerts = AsyncMock()
 
     market_ws = AsyncMock()
@@ -201,14 +213,11 @@ async def test_loops_are_independent():
         loop2_ran = True
 
     with patch("core.execution.liveness.asyncio.sleep", new=AsyncMock()):
-        # Run Loop 1 until it dies; Loop 2 in parallel
         task1 = asyncio.create_task(order_safety_heartbeat_loop(clob, settings, alerts))
         task2 = asyncio.create_task(fake_loop2(market_ws, user_ws))
 
-        # Wait briefly for both
         done, pending = await asyncio.wait([task1, task2], timeout=0.1)
         for t in pending:
             t.cancel()
 
-    # Loop 2 was started and ran independently of Loop 1's failure
     assert loop2_ran is True
