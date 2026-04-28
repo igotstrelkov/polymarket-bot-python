@@ -109,7 +109,7 @@ class RecoveryCoordinator:
                     price=float(raw.get("price", 0)),
                     size=float(raw.get("original_size", 0)),
                     time_in_force=raw.get("time_in_force", "GTC"),
-                    post_only=bool(raw.get("maker_amount", 0)),
+                    post_only=bool(raw.get("post_only", True)),
                     strategy="",   # unknown — pre-crash order
                     fee_rate_bps=0,
                     neg_risk=False,

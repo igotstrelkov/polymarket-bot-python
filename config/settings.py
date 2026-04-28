@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     STALE_QUOTE_TIMEOUT_S: int = 60
 
     # ── Infrastructure ────────────────────────────────────────────────────────
-    SCAN_INTERVAL_MS: int = 900_000        # 15 min — top-500 markets change slowly
+    SCAN_INTERVAL_MS: int = 300_000        # 5 min — per FR-103 spec
     REDEMPTION_POLL_INTERVAL_S: int = 60
     EOA_FALLBACK_TIMEOUT_S: int = 30
     MIN_USDC_BALANCE: float = 50.0
