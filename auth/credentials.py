@@ -47,14 +47,14 @@ async def derive_credentials(private_key: str, host: str, chain_id: int) -> ApiC
 def build_clob_client(settings: Settings, creds: ApiCreds):
     """Build an authenticated ClobClient for Level 2 (HMAC-SHA256) requests.
 
-    Signature type 2 (Gnosis Safe via Builder Relayer) when USE_RELAYER=True.
+    Signature type 1 (Poly Proxy, standard Polymarket account) when USE_RELAYER=True.
     Signature type 0 (EOA, direct EIP-712) when USE_RELAYER=False.
     """
     # Lazy import so unit tests can mock py_clob_client via sys.modules
     from py_clob_client.client import ClobClient  # type: ignore[import]
     from py_clob_client.clob_types import ApiCreds as SdkCreds  # type: ignore[import]
 
-    signature_type = 2 if settings.USE_RELAYER else 0
+    signature_type = 1 if settings.USE_RELAYER else 0
     funder = settings.PROXY_WALLET or None
     sdk_creds = SdkCreds(
         api_key=creds.api_key,

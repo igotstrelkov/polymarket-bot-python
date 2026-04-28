@@ -117,7 +117,7 @@ async def test_derive_credentials_constructs_temporary_client_with_private_key()
 
 # ── build_clob_client ─────────────────────────────────────────────────────────
 
-def test_build_clob_client_uses_signature_type_2_when_relayer_enabled():
+def test_build_clob_client_uses_signature_type_1_when_relayer_enabled():
     _reset_clob_mock()
     settings = make_settings(USE_RELAYER=True)
     creds = ApiCreds(api_key="k", secret="s", passphrase="p")
@@ -125,7 +125,7 @@ def test_build_clob_client_uses_signature_type_2_when_relayer_enabled():
     build_clob_client(settings, creds)
 
     _, kwargs = _mock_clob_cls.call_args
-    assert kwargs.get("signature_type") == 2
+    assert kwargs.get("signature_type") == 1
 
 
 def test_build_clob_client_uses_signature_type_0_when_relayer_disabled():
